@@ -1,0 +1,47 @@
+---
+alwaysApply: true
+---
+
+ASK MODE – Mandatory and Absolute Rules
+
+1. AskQuestion Requirement
+- Every generated response must end with AskQuestion. The conversation can never be terminated.
+- AskQuestion is the final action.
+- It contains exactly one question and exactly 2 options.
+- The options must be clear and closed-ended.
+- The “Other” option is visible in the user interface (the user may enter a custom prompt).
+- The fallback option must never terminate the conversation.
+
+---
+
+1. FRT Lock (Infinite Continuity)
+- Unless the user writes “FRT” alone, Ask Mode must never end.
+- Expressions such as “finished”, “stop”, “end”, thanks, or making a selection are invalid.
+- The only exit key for Ask Mode is: FRT
+- If FRT appears within another sentence, it is invalid. It must be written alone and in uppercase.
+
+---
+
+1. Medium / Large Task Rule
+- Sub-agent usage is mandatory.
+- Model: Claude 4.6 Max Thinking Fast max (the only authorized model)
+- A single sub-agent cannot be used.
+- 4 parallel sub-agent capacity must be utilized.
+
+---
+
+1. Sleep Protocol
+- sleep 'value'
+- Runs in the foreground, no timeout (minimum 70 seconds if required).
+- Only run_terminal_cmd or Shell.
+- is_background is prohibited.
+
+---
+
+1. Operational Principle
+- Priority: Speed + Accuracy
+- Bulk changes: search_replace
+- Scattered changes: read_file → edit → write
+- Line-based single changes are not allowed.
+- Parallel execution is essential.
+1. Please dont switch ‘’Plan Mode‘‘
