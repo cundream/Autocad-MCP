@@ -1490,3 +1490,171 @@ class ComBackend(AutoCADBackend):
             result = doc.SendCommand(f"(progn {expression})\n")
             return {"ok": True, "expression": expression, "result": str(result) if result else "nil"}
         return await self._run(_sync)
+
+    # ── corner ops ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _safe_send_command(doc, cmd: str, deadline_s: float = 8.0) -> list[str]:
+        """Send `cmd`, polling CMDACTIVE until the command finishes.
+
+        Snap/grid/echo are temporarily zeroed to avoid OSNAP-driven misclicks
+        and chatty echoes; everything is restored in the finally block.
+        Returns a list of new entity handles created by the command (empty
+        list for in-place operations like TRIM/EXTEND).
+        """
+        saved: dict[str, Any] = {}
+        try:
+            for var in ("OSMODE", "SNAPMODE", "CMDECHO"):
+                try:
+                    saved[var] = doc.GetVariable(var)
+                    doc.SetVariable(var, 0)
+                except Exception:
+                    pass
+            # Snapshot model-space handles (best-effort).
+            try:
+                pre = {e.Handle for e in doc.ModelSpace}
+            except Exception:
+                pre = set()
+            payload = cmd if cmd.endswith("\n") else cmd + "\n"
+            doc.SendCommand(payload)
+            deadline = time.monotonic() + float(deadline_s)
+            while True:
+                try:
+                    active = int(doc.GetVariable("CMDACTIVE"))
+                except Exception:
+                    active = 0
+                if active == 0:
+                    break
+                if time.monotonic() > deadline:
+                    try:
+                        doc.SendCommand("\x1b\x1b\x1b\n")  # ESC×3
+                    except Exception:
+                        pass
+                    raise RuntimeError(
+                        f"AutoCAD command did not finish within {deadline_s:.1f}s: {cmd!r}"
+                    )
+                time.sleep(0.05)
+            try:
+                post = {e.Handle for e in doc.ModelSpace}
+            except Exception:
+                post = pre
+            return list(post - pre)
+        finally:
+            for var, val in saved.items():
+                try:
+                    doc.SetVariable(var, val)
+                except Exception:
+                    pass
+
+    async def entity_trim(self, target_handle, cutter_handle, keep_x, keep_y) -> EntityInfo:
+        def _sync():
+            doc = _acad_doc()
+            cmd = (
+                f'_TRIM\n(handent "{cutter_handle}")\n\n'
+                f'{float(keep_x)},{float(keep_y)}\n\n'
+            )
+            self._safe_send_command(doc, cmd)
+            ent = doc.HandleToObject(target_handle)
+            return _entity_info(ent)
+        return await self._run(_sync)
+
+    async def entity_extend(
+        self, target_handle, boundary_handle, end_x=None, end_y=None,
+    ) -> EntityInfo:
+        def _sync():
+            doc = _acad_doc()
+            target = doc.HandleToObject(target_handle)
+            boundary = doc.HandleToObject(boundary_handle)
+            if end_x is None or end_y is None:
+                # Auto: pick the target endpoint nearest the boundary midpoint.
+                try:
+                    ts = target.StartPoint
+                    te = target.EndPoint
+                    bs = boundary.StartPoint
+                    be_ = boundary.EndPoint
+                    bm = ((bs[0] + be_[0]) / 2.0, (bs[1] + be_[1]) / 2.0)
+                    ds = (ts[0] - bm[0]) ** 2 + (ts[1] - bm[1]) ** 2
+                    de = (te[0] - bm[0]) ** 2 + (te[1] - bm[1]) ** 2
+                    pick = ts if ds <= de else te
+                    ex, ey = float(pick[0]), float(pick[1])
+                except Exception:
+                    ex, ey = 0.0, 0.0
+            else:
+                ex, ey = float(end_x), float(end_y)
+            cmd = (
+                f'_EXTEND\n(handent "{boundary_handle}")\n\n'
+                f'{ex},{ey}\n\n'
+            )
+            self._safe_send_command(doc, cmd)
+            return _entity_info(doc.HandleToObject(target_handle))
+        return await self._run(_sync)
+
+    async def entity_fillet(self, handle1, handle2, radius, trim=True) -> EntityInfo:
+        def _sync():
+            doc = _acad_doc()
+            t = "T" if trim else "N"  # T=Trim, N=No-trim
+            cmd = (
+                f'_FILLET\n_R\n{float(radius)}\n_T\n_{t}\n'
+                f'(handent "{handle1}")\n(handent "{handle2}")\n'
+            )
+            new_handles = self._safe_send_command(doc, cmd)
+            # Return the new ARC entity if one was created (radius > 0); else
+            # fall back to handle1 (radius=0 = sharp corner, no arc).
+            for h in new_handles:
+                try:
+                    ent = doc.HandleToObject(h)
+                    if ent.ObjectName == "AcDbArc":
+                        return _entity_info(ent)
+                except Exception:
+                    continue
+            return _entity_info(doc.HandleToObject(handle1))
+        return await self._run(_sync)
+
+    async def entity_chamfer(
+        self, handle1, handle2, dist1, dist2=None, trim=True,
+    ) -> EntityInfo:
+        def _sync():
+            doc = _acad_doc()
+            d1 = float(dist1)
+            d2 = float(dist1 if dist2 is None else dist2)
+            t = "T" if trim else "N"
+            cmd = (
+                f'_CHAMFER\n_D\n{d1}\n{d2}\n_T\n_{t}\n'
+                f'(handent "{handle1}")\n(handent "{handle2}")\n'
+            )
+            new_handles = self._safe_send_command(doc, cmd)
+            for h in new_handles:
+                try:
+                    ent = doc.HandleToObject(h)
+                    if ent.ObjectName == "AcDbLine":
+                        return _entity_info(ent)
+                except Exception:
+                    continue
+            return _entity_info(doc.HandleToObject(handle1))
+        return await self._run(_sync)
+
+    # ── premium meta-tools (Task #7/#8/#9 implement these) ──────────────────
+    async def drawing_plan(self, intent, sheet_size="A3", scale=1.0,
+                           layer_set_id="mech", view_count=1, dim_style="chain", notes=None):
+        raise NotImplementedError("drawing_plan — pending Task #8")
+
+    async def drawing_critique(self, focus=None):
+        raise NotImplementedError("drawing_critique — pending Task #8")
+
+    async def point_from_snap(self, handle, snap, ref_x=None, ref_y=None):
+        raise NotImplementedError("point_from_snap — pending Task #7")
+
+    async def construction_xline(self, x, y, angle_deg, layer="CONSTRUCTION"):
+        raise NotImplementedError("construction_xline — pending Task #7")
+
+    async def construction_clear(self, layer="CONSTRUCTION"):
+        raise NotImplementedError("construction_clear — pending Task #7")
+
+    async def drawing_apply_iso_layers(self, standard="mech"):
+        raise NotImplementedError("drawing_apply_iso_layers — pending Task #9")
+
+    async def dimension_auto(self, handles, style="chain", offset=10.0):
+        raise NotImplementedError("dimension_auto — pending Task #9")
+
+    async def entity_select_smart(self, predicate):
+        raise NotImplementedError("entity_select_smart — pending Task #9")

@@ -5,7 +5,18 @@ from __future__ import annotations
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from engineering.plan_spec import (
+        CritiqueFocus,
+        DimStyle,
+        Issue,
+        LayerSetId,
+        PlanSpec,
+        SheetSize,
+        SnapType,
+    )
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -291,6 +302,45 @@ class AutoCADBackend(ABC):
         center_x: float, center_y: float,
     ) -> list[EntityInfo]: ...
 
+    # ── corner operations (trim/extend/fillet/chamfer) ───────────────────────
+    @abstractmethod
+    async def entity_trim(
+        self, target_handle: str, cutter_handle: str,
+        keep_x: float, keep_y: float,
+    ) -> EntityInfo:
+        """Trim `target` against `cutter`; keep the segment containing
+        (keep_x, keep_y). Raises ToolError if no intersection."""
+        ...
+
+    @abstractmethod
+    async def entity_extend(
+        self, target_handle: str, boundary_handle: str,
+        end_x: float | None = None, end_y: float | None = None,
+    ) -> EntityInfo:
+        """Extend `target` to meet `boundary`. If `end_x/y` is None, the
+        target endpoint nearest the boundary is auto-selected."""
+        ...
+
+    @abstractmethod
+    async def entity_fillet(
+        self, handle1: str, handle2: str, radius: float,
+        trim: bool = True,
+    ) -> EntityInfo:
+        """Fillet two entities with the given radius. Returns the new ARC.
+        When `trim` is True (default), the source entities are shortened
+        to the tangent points (AutoCAD default behaviour)."""
+        ...
+
+    @abstractmethod
+    async def entity_chamfer(
+        self, handle1: str, handle2: str,
+        dist1: float, dist2: float | None = None,
+        trim: bool = True,
+    ) -> EntityInfo:
+        """Chamfer two entities. When `dist2` is None it defaults to `dist1`
+        (symmetric chamfer). Returns the new chamfer LINE."""
+        ...
+
     # ── entity query/properties ───────────────────────────────────────────────
     @abstractmethod
     async def entity_get(self, handle: str) -> EntityInfo: ...
@@ -457,6 +507,88 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def system_run_lisp(self, expression: str) -> dict: ...
+
+    # ── premium meta-tools (planning + critique + snap + construction) ──────
+    @abstractmethod
+    async def drawing_plan(
+        self, intent: str,
+        sheet_size: "SheetSize" = "A3",
+        scale: float = 1.0,
+        layer_set_id: "LayerSetId" = "mech",
+        view_count: int = 1,
+        dim_style: "DimStyle" = "chain",
+        notes: list[str] | None = None,
+    ) -> "PlanSpec":
+        """Commit a drawing intent before any geometry is created.
+        Returns a PlanSpec replayed at finalize time by `drawing_critique`."""
+        ...
+
+    @abstractmethod
+    async def drawing_critique(
+        self, focus: list["CritiqueFocus"] | None = None,
+    ) -> list["Issue"]:
+        """Run premium-quality checks; return zero issues before
+        `drawing_finalize`. `focus=None` runs all checks."""
+        ...
+
+    @abstractmethod
+    async def point_from_snap(
+        self, handle: str, snap: "SnapType",
+        ref_x: float | None = None, ref_y: float | None = None,
+    ) -> tuple[float, float]:
+        """Return a deterministic snap point on `handle`.
+        snap ∈ {end, mid, center, quad, int, perp, near}.
+        For `near/perp/int`, `ref_x/y` is the reference point or other
+        entity's vicinity."""
+        ...
+
+    @abstractmethod
+    async def construction_xline(
+        self, x: float, y: float, angle_deg: float,
+        layer: str = "CONSTRUCTION",
+    ) -> EntityInfo:
+        """Create an infinite construction line (XLINE) on a CONSTRUCTION
+        layer (auto-created with color 8 dashed if missing)."""
+        ...
+
+    @abstractmethod
+    async def construction_clear(
+        self, layer: str = "CONSTRUCTION",
+    ) -> dict:
+        """Delete every entity on the CONSTRUCTION layer.
+        Must be called before `drawing_finalize`."""
+        ...
+
+    @abstractmethod
+    async def drawing_apply_iso_layers(
+        self, standard: "LayerSetId" = "mech",
+    ) -> dict:
+        """Bootstrap a full ISO-conformant layer set with correct colors
+        and lineweights. Idempotent."""
+        ...
+
+    @abstractmethod
+    async def dimension_auto(
+        self, handles: list[str], style: "DimStyle" = "chain",
+        offset: float = 10.0,
+    ) -> list[EntityInfo]:
+        """Generate ISO 129 dimensions across `handles` in the chosen style
+        (chain | baseline | ordinate). `offset` is the dimension-line
+        distance from the reference geometry (mm)."""
+        ...
+
+    @abstractmethod
+    async def entity_select_smart(
+        self, predicate: dict,
+    ) -> list[EntityInfo]:
+        """Semantic entity selection. Predicate keys (all optional, AND-ed):
+        - type: "LINE" | "CIRCLE" | ...
+        - layer: layer name
+        - near: [x, y, radius] — entity bounding box must intersect circle
+        - length_range: [min, max] — applies to LINE/ARC
+        - color: ACI int
+        """
+        ...
 
     # ── concrete helpers (use existing primitives) ──────────────────────────
     async def set_layer_active(self, name: str) -> None:

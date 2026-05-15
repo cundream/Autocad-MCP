@@ -868,6 +868,83 @@ async def entity_offset(
     return _dc(result)
 
 
+# ── corner operations (trim/extend/fillet/chamfer) ──────────────────────────
+
+@mcp.tool(
+    annotations={"title": "Trim Entity", "readOnlyHint": False, "destructiveHint": False},
+    tags={"entity", "modify", "corner"},
+)
+async def entity_trim(
+    target_handle: Annotated[str, "Handle of the line being trimmed"],
+    cutter_handle: Annotated[str, "Handle of the cutting line"],
+    keep_x: Annotated[float, "X of a point on the side of the target to KEEP"],
+    keep_y: Annotated[float, "Y of a point on the side of the target to KEEP"],
+    ctx: Context = None,
+) -> dict:
+    """Trim `target` against `cutter`, keeping the segment containing (keep_x, keep_y).
+
+    V1 supports LINE+LINE only. Cutter is treated as an infinite ray (AutoCAD's
+    default 'implied extend' trim mode). Raises if the lines are parallel.
+    """
+    result = await _backend(ctx).entity_trim(target_handle, cutter_handle, keep_x, keep_y)
+    return _dc(result)
+
+
+@mcp.tool(
+    annotations={"title": "Extend Entity", "readOnlyHint": False, "destructiveHint": False},
+    tags={"entity", "modify", "corner"},
+)
+async def entity_extend(
+    target_handle: Annotated[str, "Handle of the line being extended"],
+    boundary_handle: Annotated[str, "Handle of the boundary line"],
+    end_x: Annotated[float | None, "X of a point near the endpoint to extend (None = auto)"] = None,
+    end_y: Annotated[float | None, "Y of a point near the endpoint to extend (None = auto)"] = None,
+    ctx: Context = None,
+) -> dict:
+    """Extend `target` to meet `boundary`. If end_x/end_y is None, the target
+    endpoint nearest the boundary is auto-selected.
+
+    V1 supports LINE+LINE only. Raises if the lines are parallel.
+    """
+    result = await _backend(ctx).entity_extend(target_handle, boundary_handle, end_x, end_y)
+    return _dc(result)
+
+
+@mcp.tool(
+    annotations={"title": "Fillet Two Entities", "readOnlyHint": False, "destructiveHint": False},
+    tags={"entity", "modify", "corner"},
+)
+async def entity_fillet(
+    handle1: Annotated[str, "First entity handle"],
+    handle2: Annotated[str, "Second entity handle"],
+    radius: Annotated[float, Field(description="Fillet radius (>= 0; 0 = sharp corner / corner-merge)", ge=0.0)],
+    trim: Annotated[bool, "If true, trim source entities to the tangent points (AutoCAD default)"] = True,
+    ctx: Context = None,
+) -> dict:
+    """Round a corner with a tangent arc. Returns info on the new ARC entity
+    (or the first source line for radius=0). V1 supports LINE+LINE only."""
+    result = await _backend(ctx).entity_fillet(handle1, handle2, radius, trim)
+    return _dc(result)
+
+
+@mcp.tool(
+    annotations={"title": "Chamfer Two Entities", "readOnlyHint": False, "destructiveHint": False},
+    tags={"entity", "modify", "corner"},
+)
+async def entity_chamfer(
+    handle1: Annotated[str, "First entity handle"],
+    handle2: Annotated[str, "Second entity handle"],
+    dist1: Annotated[float, Field(description="Chamfer distance along first line", gt=0.0)],
+    dist2: Annotated[float | None, "Chamfer distance along second line (None = symmetric, dist2=dist1)"] = None,
+    trim: Annotated[bool, "If true, trim source entities to the tangent points (AutoCAD default)"] = True,
+    ctx: Context = None,
+) -> dict:
+    """Bevel a corner with a chamfer line. Returns info on the new chamfer LINE.
+    V1 supports LINE+LINE only."""
+    result = await _backend(ctx).entity_chamfer(handle1, handle2, dist1, dist2, trim)
+    return _dc(result)
+
+
 @mcp.tool(
     annotations={"title": "Delete Entity", "readOnlyHint": False, "destructiveHint": True},
     tags={"entity", "modify"},
@@ -2241,6 +2318,169 @@ async def drawing_finalize(
             f"First: {result.findings[0].code}: {result.findings[0].message}"
         )
     return payload
+
+
+# ---------------------------------------------------------------------------
+# ── SECTION 13: Premium Drafting Meta-Tools (5x quality multiplier) ─────────
+# ---------------------------------------------------------------------------
+# These tools wrap the entity primitives in a quality-first workflow:
+#   plan → snap-aware geometry → critique → finalize.
+# See `.claude/skills/autocad-mcp-premium/` for the full discipline.
+
+@mcp.tool(
+    annotations={"title": "Drawing: Plan (commit intent before drawing)",
+                 "destructiveHint": False},
+    tags={"premium", "planning"},
+)
+async def drawing_plan(
+    intent: Annotated[str, "One-line description of what this drawing represents."],
+    sheet_size: Annotated[str, Field(default="A3",
+        description="Paper size: A4 / A3 / A2 / A1 / A0.")] = "A3",
+    scale: Annotated[float, Field(default=1.0, gt=0,
+        description="Drawing scale (1.0 = 1:1, 0.1 = 1:10, etc).")] = 1.0,
+    layer_set_id: Annotated[str, Field(default="mech",
+        description="Layer set to bootstrap: mech / pid / iso13567.")] = "mech",
+    view_count: Annotated[int, Field(default=1, ge=1)] = 1,
+    dim_style: Annotated[str, Field(default="chain",
+        description="Default dimensioning style: chain / baseline / ordinate / mixed.")] = "chain",
+    notes: Annotated[list[str] | None, "Free-form constraint notes."] = None,
+    ctx: Context = None,
+) -> dict:
+    """Commit a PlanSpec before any geometry is created.
+
+    The PlanSpec is held by the backend and replayed by `drawing_critique`
+    at finalize time to verify the drawing matches the original intent.
+    Always call this FIRST in a premium workflow.
+    """
+    plan = await _backend(ctx).drawing_plan(
+        intent, sheet_size, scale, layer_set_id, view_count, dim_style, notes,
+    )
+    return _dc(plan)
+
+
+@mcp.tool(
+    annotations={"title": "Drawing: Critique (premium quality checks)",
+                 "destructiveHint": False, "readOnlyHint": True},
+    tags={"premium", "validation"},
+)
+async def drawing_critique(
+    focus: Annotated[list[str] | None, Field(default=None,
+        description="Subset of: iso128, layer_color, dim_overlap, untrimmed_corner, "
+                    "duplicate_entities, construction_left. None = run all.")] = None,
+    ctx: Context = None,
+) -> list[dict]:
+    """Run premium-quality checks. Returns zero issues for a clean drawing.
+
+    Standard production gate: must return [] before `drawing_finalize`.
+    """
+    issues = await _backend(ctx).drawing_critique(focus)
+    return [_dc(i) for i in issues]
+
+
+@mcp.tool(
+    annotations={"title": "Point: Snap (deterministic OSNAP)", "readOnlyHint": True},
+    tags={"premium", "snap"},
+)
+async def point_from_snap(
+    handle: Annotated[str, "Entity handle to snap onto"],
+    snap: Annotated[str, Field(description="Snap type: end | mid | center | quad | perp | near")],
+    ref_x: Annotated[float | None, "Reference X (required for perp/near; disambiguates end/quad)"] = None,
+    ref_y: Annotated[float | None, "Reference Y"] = None,
+    ctx: Context = None,
+) -> dict:
+    """Compute a deterministic snap point on an entity. Use this INSTEAD OF
+    guessing coordinates — eliminates the most common LLM drawing error.
+    """
+    pt = await _backend(ctx).point_from_snap(handle, snap, ref_x, ref_y)
+    return {"x": float(pt[0]), "y": float(pt[1])}
+
+
+@mcp.tool(
+    annotations={"title": "Construction: XLine (infinite reference)",
+                 "destructiveHint": False},
+    tags={"premium", "construction"},
+)
+async def construction_xline(
+    x: Annotated[float, "Base point X"],
+    y: Annotated[float, "Base point Y"],
+    angle_deg: Annotated[float, "Angle in degrees (0=horizontal, 90=vertical)"],
+    layer: Annotated[str, "Layer for the construction line"] = "CONSTRUCTION",
+    ctx: Context = None,
+) -> dict:
+    """Create an infinite construction line on the CONSTRUCTION layer.
+    Use as scaffolding; call `construction_clear()` before finalize.
+    """
+    result = await _backend(ctx).construction_xline(x, y, angle_deg, layer)
+    return _dc(result)
+
+
+@mcp.tool(
+    annotations={"title": "Construction: Clear (delete scaffold)",
+                 "destructiveHint": True},
+    tags={"premium", "construction"},
+)
+async def construction_clear(
+    layer: Annotated[str, "Layer to clear"] = "CONSTRUCTION",
+    ctx: Context = None,
+) -> dict:
+    """Delete every entity on the CONSTRUCTION layer. Idempotent.
+    Must be called before `drawing_finalize` to satisfy `construction_left` critique.
+    """
+    return await _backend(ctx).construction_clear(layer)
+
+
+@mcp.tool(
+    annotations={"title": "Drawing: Apply ISO Layer Set (bootstrap)",
+                 "destructiveHint": False},
+    tags={"premium", "layers"},
+)
+async def drawing_apply_iso_layers(
+    standard: Annotated[str, Field(default="mech",
+        description="Layer set: mech (DIN/ISO mechanical), pid (P&ID), iso13567 (CAD layer naming).")] = "mech",
+    ctx: Context = None,
+) -> dict:
+    """Bootstrap a full ISO-conformant layer set with correct colors and lineweights.
+    Idempotent — existing layers are not modified.
+    """
+    return await _backend(ctx).drawing_apply_iso_layers(standard)
+
+
+@mcp.tool(
+    annotations={"title": "Dimension: Auto (chain / baseline / ordinate)",
+                 "destructiveHint": False},
+    tags={"premium", "dimension"},
+)
+async def dimension_auto(
+    handles: Annotated[list[str], "List of entity handles to dimension"],
+    style: Annotated[str, Field(default="chain",
+        description="chain | baseline | ordinate")] = "chain",
+    offset: Annotated[float, Field(default=10.0, gt=0,
+        description="Dimension-line offset from the geometry (mm)")] = 10.0,
+    ctx: Context = None,
+) -> list[dict]:
+    """Generate ISO 129 dimensions across the listed entities in the chosen style.
+    V1 supports LINE entities only.
+    """
+    result = await _backend(ctx).dimension_auto(handles, style, offset)
+    return [_dc(e) for e in result]
+
+
+@mcp.tool(
+    annotations={"title": "Entity: Smart Select (semantic predicate)",
+                 "readOnlyHint": True},
+    tags={"premium", "select"},
+)
+async def entity_select_smart(
+    predicate: Annotated[dict, Field(description=(
+        "Predicate dict (all keys optional, AND-ed): "
+        "type (e.g. 'LINE'), layer (name), near ([x,y,radius]), "
+        "length_range ([min,max], LINE/ARC only), color (ACI int)."
+    ))],
+    ctx: Context = None,
+) -> list[dict]:
+    """Select entities by semantic predicate instead of memorising handles."""
+    result = await _backend(ctx).entity_select_smart(predicate)
+    return [_dc(e) for e in result]
 
 
 # ---------------------------------------------------------------------------

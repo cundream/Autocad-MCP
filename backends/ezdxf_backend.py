@@ -1518,3 +1518,533 @@ class EzdxfBackend(AutoCADBackend):
             "ok": False,
             "error": "system_run_lisp not supported in ezdxf backend (no live AutoCAD)",
         }
+
+    # ── corner ops ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _line_endpoints(ent) -> tuple[tuple[float, float], tuple[float, float]]:
+        return (
+            (float(ent.dxf.start.x), float(ent.dxf.start.y)),
+            (float(ent.dxf.end.x), float(ent.dxf.end.y)),
+        )
+
+    @staticmethod
+    def _dist2(a: tuple[float, float], b: tuple[float, float]) -> float:
+        return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2
+
+    async def entity_trim(self, target_handle, cutter_handle, keep_x, keep_y) -> EntityInfo:
+        def _sync():
+            from ezdxf.math import intersection_line_line_2d, Vec2
+            target = self._get_entity(target_handle)
+            cutter = self._get_entity(cutter_handle)
+            if target.dxftype() != "LINE" or cutter.dxftype() != "LINE":
+                raise RuntimeError(
+                    f"entity_trim V1 supports LINE+LINE only "
+                    f"(got {target.dxftype()}+{cutter.dxftype()}). V2 will add LINE+ARC."
+                )
+            if target_handle == cutter_handle:
+                raise RuntimeError("entity_trim: target and cutter cannot be the same entity.")
+            t_start, t_end = self._line_endpoints(target)
+            c_start, c_end = self._line_endpoints(cutter)
+            # virtual=True so cutter can extend in the target's direction
+            # (AutoCAD's default trim behaviour = "implied extend").
+            ip = intersection_line_line_2d(
+                (Vec2(*t_start), Vec2(*t_end)),
+                (Vec2(*c_start), Vec2(*c_end)),
+                virtual=True,
+            )
+            if ip is None:
+                raise RuntimeError(
+                    "entity_trim: target and cutter are parallel or do not intersect."
+                )
+            ix, iy = float(ip.x), float(ip.y)
+            keep = (float(keep_x), float(keep_y))
+            d_start = self._dist2(t_start, keep)
+            d_end = self._dist2(t_end, keep)
+            if d_start <= d_end:
+                target.dxf.end = (ix, iy, 0.0)
+            else:
+                target.dxf.start = (ix, iy, 0.0)
+            self._mark_dirty()
+            return _entity_info_dxf(target)
+        return await self._async(_sync)
+
+    async def entity_extend(
+        self, target_handle, boundary_handle, end_x=None, end_y=None,
+    ) -> EntityInfo:
+        def _sync():
+            from ezdxf.math import intersection_line_line_2d, Vec2
+            target = self._get_entity(target_handle)
+            boundary = self._get_entity(boundary_handle)
+            if target.dxftype() != "LINE" or boundary.dxftype() != "LINE":
+                raise RuntimeError(
+                    f"entity_extend V1 supports LINE+LINE only "
+                    f"(got {target.dxftype()}+{boundary.dxftype()}). V2 will add LINE+ARC."
+                )
+            if target_handle == boundary_handle:
+                raise RuntimeError("entity_extend: target and boundary cannot be the same entity.")
+            t_start, t_end = self._line_endpoints(target)
+            b_start, b_end = self._line_endpoints(boundary)
+            ip = intersection_line_line_2d(
+                (Vec2(*t_start), Vec2(*t_end)),
+                (Vec2(*b_start), Vec2(*b_end)),
+                virtual=True,  # treat lines as infinite for extend
+            )
+            if ip is None:
+                raise RuntimeError(
+                    "entity_extend: target and boundary are parallel; no extension possible."
+                )
+            ix, iy = float(ip.x), float(ip.y)
+            if end_x is None or end_y is None:
+                # auto: extend the endpoint nearest the boundary midpoint
+                b_mid = ((b_start[0] + b_end[0]) / 2, (b_start[1] + b_end[1]) / 2)
+                ref = b_mid
+            else:
+                ref = (float(end_x), float(end_y))
+            d_start = self._dist2(t_start, ref)
+            d_end = self._dist2(t_end, ref)
+            if d_start <= d_end:
+                target.dxf.start = (ix, iy, 0.0)
+            else:
+                target.dxf.end = (ix, iy, 0.0)
+            self._mark_dirty()
+            return _entity_info_dxf(target)
+        return await self._async(_sync)
+
+    def _fillet_chamfer_setup(self, handle1: str, handle2: str, op: str):
+        """Shared geometry setup for fillet/chamfer.
+        Returns (line1, line2, P, d1, d2, A_far, B_far, theta) where d1/d2 are
+        unit vectors from intersection P toward the far endpoint of each line."""
+        from ezdxf.math import intersection_line_line_2d, Vec2
+        line1 = self._get_entity(handle1)
+        line2 = self._get_entity(handle2)
+        if line1.dxftype() != "LINE" or line2.dxftype() != "LINE":
+            raise RuntimeError(
+                f"entity_{op} V1 supports LINE+LINE only "
+                f"(got {line1.dxftype()}+{line2.dxftype()}). V2 will add LINE+ARC."
+            )
+        if handle1 == handle2:
+            raise RuntimeError(f"entity_{op}: handle1 and handle2 cannot be the same.")
+        a_start, a_end = self._line_endpoints(line1)
+        b_start, b_end = self._line_endpoints(line2)
+        P = intersection_line_line_2d(
+            (Vec2(*a_start), Vec2(*a_end)),
+            (Vec2(*b_start), Vec2(*b_end)),
+            virtual=True,
+        )
+        if P is None:
+            raise RuntimeError(f"entity_{op}: lines are parallel; no intersection.")
+        Pv = (float(P.x), float(P.y))
+        # Pick the far endpoint of each line (relative to P).
+        A_far = a_start if self._dist2(a_start, Pv) > self._dist2(a_end, Pv) else a_end
+        B_far = b_start if self._dist2(b_start, Pv) > self._dist2(b_end, Pv) else b_end
+        # Unit vectors from P toward the far endpoints.
+        ax, ay = A_far[0] - Pv[0], A_far[1] - Pv[1]
+        bx, by = B_far[0] - Pv[0], B_far[1] - Pv[1]
+        la = math.hypot(ax, ay)
+        lb = math.hypot(bx, by)
+        if la < 1e-12 or lb < 1e-12:
+            raise RuntimeError(f"entity_{op}: degenerate line (zero length).")
+        d1 = (ax / la, ay / la)
+        d2 = (bx / lb, by / lb)
+        cos_t = max(-1.0, min(1.0, d1[0] * d2[0] + d1[1] * d2[1]))
+        theta = math.acos(cos_t)
+        if theta < 1e-9 or abs(math.pi - theta) < 1e-9:
+            raise RuntimeError(
+                f"entity_{op}: lines are collinear or anti-parallel; cannot resolve corner."
+            )
+        return line1, line2, Pv, d1, d2, A_far, B_far, theta
+
+    async def entity_fillet(self, handle1, handle2, radius, trim=True) -> EntityInfo:
+        def _sync():
+            line1, line2, P, d1, d2, A_far, B_far, theta = (
+                self._fillet_chamfer_setup(handle1, handle2, "fillet")
+            )
+            r = float(radius)
+            if r < 0:
+                raise RuntimeError("entity_fillet: radius must be >= 0.")
+            half = theta / 2.0
+            s = r / math.tan(half) if r > 0 else 0.0   # tangent distance from P
+            T1 = (P[0] + s * d1[0], P[1] + s * d1[1])
+            T2 = (P[0] + s * d2[0], P[1] + s * d2[1])
+            msp = self._msp()
+            arc_handle = None
+            if r > 0:
+                # Bisector unit vector (interior of the corner).
+                bx, by = d1[0] + d2[0], d1[1] + d2[1]
+                bl = math.hypot(bx, by)
+                if bl < 1e-12:
+                    raise RuntimeError("entity_fillet: bisector is degenerate.")
+                bux, buy = bx / bl, by / bl
+                C = (P[0] + (r / math.sin(half)) * bux,
+                     P[1] + (r / math.sin(half)) * buy)
+                # Arc start/end angles in degrees, CCW. Pick the orientation
+                # that yields the short arc (interior fillet) using the cross
+                # product sign of (T1-C) × (T2-C).
+                a1 = math.degrees(math.atan2(T1[1] - C[1], T1[0] - C[0]))
+                a2 = math.degrees(math.atan2(T2[1] - C[1], T2[0] - C[0]))
+                cross = ((T1[0] - C[0]) * (T2[1] - C[1])
+                         - (T1[1] - C[1]) * (T2[0] - C[0]))
+                if cross >= 0:
+                    start_a, end_a = a1, a2
+                else:
+                    start_a, end_a = a2, a1
+                arc = msp.add_arc(
+                    center=(C[0], C[1]),
+                    radius=r,
+                    start_angle=start_a,
+                    end_angle=end_a,
+                    dxfattribs={"layer": line1.dxf.layer},
+                )
+                arc_handle = arc.dxf.handle
+            if trim:
+                # Shorten line1 so its near-end becomes T1; same for line2 → T2.
+                a_start, a_end = self._line_endpoints(line1)
+                if self._dist2(a_start, P) <= self._dist2(a_end, P):
+                    line1.dxf.start = (T1[0], T1[1], 0.0)
+                else:
+                    line1.dxf.end = (T1[0], T1[1], 0.0)
+                b_start, b_end = self._line_endpoints(line2)
+                if self._dist2(b_start, P) <= self._dist2(b_end, P):
+                    line2.dxf.start = (T2[0], T2[1], 0.0)
+                else:
+                    line2.dxf.end = (T2[0], T2[1], 0.0)
+            self._mark_dirty()
+            if arc_handle is not None:
+                return _entity_info_dxf(self._get_entity(arc_handle))
+            # Zero-radius fillet: no arc; return line1 (the modified first line).
+            return _entity_info_dxf(line1)
+        return await self._async(_sync)
+
+    async def entity_chamfer(
+        self, handle1, handle2, dist1, dist2=None, trim=True,
+    ) -> EntityInfo:
+        def _sync():
+            line1, line2, P, d1, d2, A_far, B_far, theta = (
+                self._fillet_chamfer_setup(handle1, handle2, "chamfer")
+            )
+            d1v = float(dist1)
+            d2v = float(dist1 if dist2 is None else dist2)
+            if d1v <= 0 or d2v <= 0:
+                raise RuntimeError("entity_chamfer: distances must be > 0.")
+            T1 = (P[0] + d1v * d1[0], P[1] + d1v * d1[1])
+            T2 = (P[0] + d2v * d2[0], P[1] + d2v * d2[1])
+            msp = self._msp()
+            chamfer_line = msp.add_line(
+                (T1[0], T1[1]), (T2[0], T2[1]),
+                dxfattribs={"layer": line1.dxf.layer},
+            )
+            if trim:
+                a_start, a_end = self._line_endpoints(line1)
+                if self._dist2(a_start, P) <= self._dist2(a_end, P):
+                    line1.dxf.start = (T1[0], T1[1], 0.0)
+                else:
+                    line1.dxf.end = (T1[0], T1[1], 0.0)
+                b_start, b_end = self._line_endpoints(line2)
+                if self._dist2(b_start, P) <= self._dist2(b_end, P):
+                    line2.dxf.start = (T2[0], T2[1], 0.0)
+                else:
+                    line2.dxf.end = (T2[0], T2[1], 0.0)
+            self._mark_dirty()
+            return _entity_info_dxf(chamfer_line)
+        return await self._async(_sync)
+
+    # ── premium meta-tools (Task #7/#8/#9 implement these) ──────────────────
+    async def drawing_plan(
+        self, intent, sheet_size="A3", scale=1.0,
+        layer_set_id="mech", view_count=1, dim_style="chain", notes=None,
+    ):
+        from engineering.plan_spec import PlanSpec
+        plan = PlanSpec(
+            intent=str(intent),
+            sheet_size=sheet_size,
+            scale=float(scale),
+            layer_set_id=layer_set_id,
+            view_count=int(view_count),
+            dim_style=dim_style,
+            notes=list(notes) if notes else [],
+        )
+        # Hold on the backend instance so drawing_critique can replay later.
+        self._plan_spec = plan
+        return plan
+
+    async def drawing_critique(self, focus=None):
+        from engineering.critique import run_critique
+        return await run_critique(self, focus)
+
+    async def point_from_snap(
+        self, handle, snap, ref_x=None, ref_y=None,
+    ) -> tuple[float, float]:
+        def _sync():
+            ent = self._get_entity(handle)
+            et = ent.dxftype()
+            ref = (float(ref_x), float(ref_y)) if ref_x is not None and ref_y is not None else None
+
+            def _line_pts():
+                return (
+                    (float(ent.dxf.start.x), float(ent.dxf.start.y)),
+                    (float(ent.dxf.end.x),   float(ent.dxf.end.y)),
+                )
+
+            def _circle_or_arc_geom():
+                cx = float(ent.dxf.center.x)
+                cy = float(ent.dxf.center.y)
+                r = float(ent.dxf.radius)
+                return cx, cy, r
+
+            if snap == "end":
+                if et == "LINE":
+                    s, e = _line_pts()
+                    if ref is None:
+                        return s
+                    ds = (s[0]-ref[0])**2 + (s[1]-ref[1])**2
+                    de = (e[0]-ref[0])**2 + (e[1]-ref[1])**2
+                    return s if ds <= de else e
+                if et == "ARC":
+                    cx, cy, r = _circle_or_arc_geom()
+                    sa = math.radians(float(ent.dxf.start_angle))
+                    ea = math.radians(float(ent.dxf.end_angle))
+                    sp = (cx + r*math.cos(sa), cy + r*math.sin(sa))
+                    ep = (cx + r*math.cos(ea), cy + r*math.sin(ea))
+                    if ref is None:
+                        return sp
+                    ds = (sp[0]-ref[0])**2 + (sp[1]-ref[1])**2
+                    de = (ep[0]-ref[0])**2 + (ep[1]-ref[1])**2
+                    return sp if ds <= de else ep
+                raise RuntimeError(f"point_from_snap: 'end' snap not supported on {et}")
+
+            if snap == "mid":
+                if et == "LINE":
+                    s, e = _line_pts()
+                    return ((s[0]+e[0])/2.0, (s[1]+e[1])/2.0)
+                if et == "ARC":
+                    cx, cy, r = _circle_or_arc_geom()
+                    sa = math.radians(float(ent.dxf.start_angle))
+                    ea = math.radians(float(ent.dxf.end_angle))
+                    if ea < sa:
+                        ea += 2*math.pi
+                    ma = (sa + ea) / 2.0
+                    return (cx + r*math.cos(ma), cy + r*math.sin(ma))
+                raise RuntimeError(f"point_from_snap: 'mid' snap not supported on {et}")
+
+            if snap == "center":
+                if et in ("CIRCLE", "ARC", "ELLIPSE"):
+                    return (float(ent.dxf.center.x), float(ent.dxf.center.y))
+                raise RuntimeError(f"point_from_snap: 'center' snap not supported on {et}")
+
+            if snap == "quad":
+                if et in ("CIRCLE", "ARC"):
+                    cx, cy, r = _circle_or_arc_geom()
+                    pts = [(cx+r, cy), (cx, cy+r), (cx-r, cy), (cx, cy-r)]
+                    if ref is None:
+                        return pts[0]
+                    return min(pts, key=lambda p: (p[0]-ref[0])**2 + (p[1]-ref[1])**2)
+                raise RuntimeError(f"point_from_snap: 'quad' snap not supported on {et}")
+
+            if snap == "perp":
+                if ref is None:
+                    raise RuntimeError("point_from_snap: 'perp' requires ref_x/ref_y.")
+                if et == "LINE":
+                    s, e = _line_pts()
+                    dx = e[0]-s[0]; dy = e[1]-s[1]
+                    L2 = dx*dx + dy*dy
+                    if L2 < 1e-18:
+                        raise RuntimeError("point_from_snap: line has zero length.")
+                    t = ((ref[0]-s[0])*dx + (ref[1]-s[1])*dy) / L2
+                    return (s[0] + t*dx, s[1] + t*dy)
+                raise RuntimeError(f"point_from_snap: 'perp' snap not supported on {et}")
+
+            if snap == "near":
+                if ref is None:
+                    raise RuntimeError("point_from_snap: 'near' requires ref_x/ref_y.")
+                if et == "LINE":
+                    s, e = _line_pts()
+                    dx = e[0]-s[0]; dy = e[1]-s[1]
+                    L2 = dx*dx + dy*dy
+                    if L2 < 1e-18:
+                        return s
+                    t = ((ref[0]-s[0])*dx + (ref[1]-s[1])*dy) / L2
+                    t = max(0.0, min(1.0, t))
+                    return (s[0] + t*dx, s[1] + t*dy)
+                if et in ("CIRCLE", "ARC"):
+                    cx, cy, r = _circle_or_arc_geom()
+                    vx, vy = ref[0]-cx, ref[1]-cy
+                    L = math.hypot(vx, vy)
+                    if L < 1e-18:
+                        return (cx + r, cy)
+                    return (cx + r*vx/L, cy + r*vy/L)
+                raise RuntimeError(f"point_from_snap: 'near' snap not supported on {et}")
+
+            if snap == "int":
+                raise RuntimeError(
+                    "point_from_snap: 'int' (intersection) requires a 2nd entity; "
+                    "use entity_select_smart or compute via two endpoints. V2 will accept a 2nd handle."
+                )
+
+            raise RuntimeError(
+                f"point_from_snap: unknown snap type '{snap}'. "
+                "Use one of: end, mid, center, quad, perp, near."
+            )
+        return await self._async(_sync)
+
+    async def construction_xline(
+        self, x, y, angle_deg, layer="CONSTRUCTION",
+    ) -> EntityInfo:
+        def _sync():
+            doc = self._require_doc()
+            # Ensure CONSTRUCTION layer exists (color 250 = light grey, lightest).
+            if layer not in doc.layers:
+                doc.layers.add(name=layer, color=250)
+            msp = self._msp()
+            angle = math.radians(float(angle_deg))
+            # ezdxf XLINE: base point + unit direction vector.
+            xline = msp.add_xline(
+                (float(x), float(y), 0.0),
+                (math.cos(angle), math.sin(angle), 0.0),
+                dxfattribs={"layer": layer},
+            )
+            self._mark_dirty()
+            return _entity_info_dxf(xline)
+        return await self._async(_sync)
+
+    async def construction_clear(self, layer="CONSTRUCTION") -> dict:
+        def _sync():
+            msp = self._msp()
+            doomed = [e for e in msp if e.dxf.layer == layer]
+            count = len(doomed)
+            for ent in doomed:
+                msp.delete_entity(ent)
+            self._mark_dirty()
+            return {"ok": True, "layer": layer, "deleted": count}
+        return await self._async(_sync)
+
+    async def drawing_apply_iso_layers(self, standard="mech") -> dict:
+        from engineering.layers import apply_layer_set
+        result = await apply_layer_set(self, standard)
+        return {"ok": True, "standard": standard, "layers": result}
+
+    async def dimension_auto(self, handles, style="chain", offset=10.0) -> list[EntityInfo]:
+        if not handles:
+            return []
+        if style not in ("chain", "baseline", "ordinate"):
+            raise RuntimeError(
+                f"dimension_auto: unknown style '{style}'. "
+                "Use 'chain', 'baseline', or 'ordinate'."
+            )
+
+        # Resolve handles to (start, end) tuples; LINE-only in V1.
+        def _gather():
+            pts: list[tuple[float, float, float, float]] = []
+            for h in handles:
+                ent = self._get_entity(h)
+                if ent.dxftype() != "LINE":
+                    raise RuntimeError(
+                        f"dimension_auto V1: only LINE entities supported (handle {h} is {ent.dxftype()})."
+                    )
+                s = (float(ent.dxf.start.x), float(ent.dxf.start.y))
+                e = (float(ent.dxf.end.x), float(ent.dxf.end.y))
+                pts.append((s[0], s[1], e[0], e[1]))
+            return pts
+
+        segs = await self._async(_gather)
+        off = float(offset)
+        results: list[EntityInfo] = []
+
+        if style == "chain":
+            # Each line gets its own linear dimension; dim line offset above.
+            for sx, sy, ex, ey in segs:
+                mx = (sx + ex) / 2.0
+                my = (sy + ey) / 2.0
+                dx, dy = ex - sx, ey - sy
+                L = math.hypot(dx, dy) or 1.0
+                # Perpendicular offset (rotate dir by 90°, scale).
+                nx, ny = -dy / L, dx / L
+                dim_x = mx + nx * off
+                dim_y = my + ny * off
+                # Use linear (rotated) dim — robust across all line orientations
+                # and avoids the dimension_aligned `dist=` bug.
+                rot_deg = math.degrees(math.atan2(dy, dx))
+                dim = await self.dimension_linear(
+                    sx, sy, ex, ey, dim_x, dim_y, rotation=rot_deg, layer="DIM",
+                )
+                results.append(dim)
+
+        elif style == "baseline":
+            # Project all endpoints onto the first segment's direction; baseline
+            # = first segment start. Each subsequent point gets a linear dim.
+            if len(segs) < 1:
+                return []
+            sx0, sy0, ex0, ey0 = segs[0]
+            dx, dy = ex0 - sx0, ey0 - sy0
+            L0 = math.hypot(dx, dy) or 1.0
+            ux, uy = dx / L0, dy / L0
+            # offset stack: each subsequent dim sits one step further away
+            for i, (sx, sy, ex, ey) in enumerate(segs):
+                dim_x = sx0 - uy * (off + i * off)
+                dim_y = sy0 + ux * (off + i * off)
+                dim = await self.dimension_linear(sx0, sy0, ex, ey, dim_x, dim_y, layer="DIM")
+                results.append(dim)
+
+        elif style == "ordinate":
+            # Treat each segment endpoint as an ordinate; mark X then Y of `end`.
+            for sx, sy, ex, ey in segs:
+                # Two dimensions per segment: X-distance and Y-distance from start.
+                dim_x = sx + (ex - sx) / 2.0
+                dim_y_pos = max(sy, ey) + off
+                if abs(ex - sx) > 1e-9:
+                    dim = await self.dimension_linear(
+                        sx, sy, ex, sy, dim_x, dim_y_pos, layer="DIM"
+                    )
+                    results.append(dim)
+                if abs(ey - sy) > 1e-9:
+                    dim_x_pos = max(sx, ex) + off
+                    dim = await self.dimension_linear(
+                        ex, sy, ex, ey, dim_x_pos, (sy + ey) / 2.0, rotation=90.0, layer="DIM"
+                    )
+                    results.append(dim)
+
+        return results
+
+    async def entity_select_smart(self, predicate) -> list[EntityInfo]:
+        if not isinstance(predicate, dict):
+            raise RuntimeError("entity_select_smart: predicate must be a dict.")
+        ptype = predicate.get("type")
+        player = predicate.get("layer")
+        pnear = predicate.get("near")          # [x, y, radius]
+        plen = predicate.get("length_range")   # [min, max]
+        pcolor = predicate.get("color")
+
+        # Pull a wide list, then filter in-memory (V1 — fine for small/medium drawings).
+        ents = await self.entity_list(
+            type_filter=ptype.upper() if isinstance(ptype, str) else None,
+            layer_filter=player if isinstance(player, str) else None,
+            limit=5000,
+        )
+
+        def _ok(e: EntityInfo) -> bool:
+            if pcolor is not None and int(e.color) != int(pcolor):
+                return False
+            if pnear is not None:
+                try:
+                    nx, ny, nr = float(pnear[0]), float(pnear[1]), float(pnear[2])
+                except Exception:
+                    return False
+                # Use the entity's first available point.
+                pt = (e.properties.get("start")
+                      or e.properties.get("center")
+                      or e.properties.get("insertion_point"))
+                if pt is None:
+                    return False
+                if (float(pt[0]) - nx) ** 2 + (float(pt[1]) - ny) ** 2 > nr ** 2:
+                    return False
+            if plen is not None and e.type in ("LINE", "ARC"):
+                try:
+                    lmin, lmax = float(plen[0]), float(plen[1])
+                except Exception:
+                    return False
+                length = e.properties.get("length")
+                if length is None or not (lmin <= float(length) <= lmax):
+                    return False
+            return True
+
+        return [e for e in ents if _ok(e)]

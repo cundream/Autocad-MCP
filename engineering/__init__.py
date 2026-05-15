@@ -21,6 +21,17 @@ from .layers import (
     ensure_engineering_layers,
     ensure_standard_linetypes,
 )
+from .plan_spec import (
+    ALL_CRITIQUE_FOCUSES,
+    ISO_128_LINEWEIGHTS_MM,
+    CritiqueFocus,
+    DimStyle,
+    Issue,
+    LayerSetId,
+    PlanSpec,
+    SheetSize,
+    SnapType,
+)
 from .section import apply_section_hatch, cutting_plane_line
 
 # Agent B contributes titleblock + validator. Imports are guarded so this
@@ -62,4 +73,13 @@ __all__ = [
     "DrawingValidator",
     "ValidationResult",
     "ValidationFinding",
+    "PlanSpec",
+    "Issue",
+    "CritiqueFocus",
+    "SheetSize",
+    "LayerSetId",
+    "DimStyle",
+    "SnapType",
+    "ALL_CRITIQUE_FOCUSES",
+    "ISO_128_LINEWEIGHTS_MM",
 ]

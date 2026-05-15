@@ -101,3 +101,50 @@ Tools are organized into 12 sections:
 - **`_dc(obj)`**: converts dataclasses to dicts recursively for JSON serialization.
 - **Engineering layer scaffold**: `drawing_new` auto-bootstraps standard linetypes (CENTER, HIDDEN, PHANTOM) and engineering layers (GEOMETRY, DIM, CENTER, HIDDEN, PHANTOM, HATCH, TEXT, TITLEBLOCK). Pass `bootstrap=False` to opt out.
 - **Production drawings**: For real engineering output, use the `engineering/` package primitives via the `gear_*` / `keyway_*` / `titleblock_*` MCP tools — do NOT hand-draw teeth/keyways/sections with raw `entity_create_*` calls. Always end with `drawing_finalize` for the 8-step validator.
+
+### Premium Drawing Rules
+
+These rules are non-negotiable for production engineering output. The full
+discipline + workflow templates live in `.claude/skills/autocad-mcp-premium/`.
+
+1. **Plan before draw**: Call `drawing_plan(intent, scale, sheet)` *before* any
+   `entity_create_*`. The returned PlanSpec is held by the backend and replayed
+   by `drawing_critique` at finalize time.
+2. **No coordinate guessing**: Never compute snap points (endpoints, midpoints,
+   intersections, perpendicular feet) from memory. Use
+   `point_from_snap(handle, "end"|"mid"|"center"|"quad"|"perp"|"near", ref_x, ref_y)`.
+3. **Layer discipline**: All geometry on engineering layers (GEOMETRY, HIDDEN,
+   CENTER, ...). Construction geometry on `CONSTRUCTION` layer (color 250,
+   lightest weight); wipe with `construction_clear()` before finalize.
+4. **Lineweights are ISO 128**: 0.13/0.18/0.25/0.35/0.50/0.70/1.00/1.40/2.00 mm
+   only. Use `drawing_apply_iso_layers("mech"|"pid"|"iso13567")` to bootstrap
+   correct lineweights per layer; never set lineweight manually outside this set.
+5. **Corners must be explicit**: Two intersecting lines that should meet at a
+   sharp corner must use `entity_trim` (with `keep_x/keep_y`) — leaving overshoot
+   is reported as `untrimmed_corner` by `drawing_critique`. Rounded/beveled
+   corners use `entity_fillet` / `entity_chamfer`.
+6. **Dimensions via auto**: Prefer `dimension_auto(handles, "chain"|"baseline"|
+   "ordinate")` over individual `dimension_linear` calls. Manual dimensions only
+   for special cases (leader notes, ordinate origins).
+7. **Critique-then-finalize**: `drawing_critique(focus=[...])` must return zero
+   issues before `drawing_finalize`. Available focuses (closed enum): `iso128`,
+   `layer_color`, `dim_overlap`, `untrimmed_corner`, `duplicate_entities`,
+   `construction_left`. Pass `focus=None` for all.
+8. **Meta-tools over raw**: When a meta-tool exists for a workflow, use it; do
+   not reimplement with low-level primitives. Same rule as the engineering-
+   primitives line above.
+
+### Standard Premium Workflow (template)
+
+```python
+1. plan = drawing_plan(intent, sheet_size="A3", scale=1.0)
+2. drawing_apply_iso_layers("mech")        # or "pid", "iso13567"
+3. construction_xline(...)                 # scaffolding (optional)
+4. entity_create_line / circle / ...       # main geometry on engineering layers
+5. entity_trim / fillet / chamfer          # close corners explicitly
+6. handles = entity_select_smart({...})    # avoid handle-memorization
+7. dimension_auto(handles, style="chain")  # ISO 129 dims
+8. issues = drawing_critique(focus=None)   # must be []
+9. construction_clear()                    # wipe scaffolding
+10. drawing_finalize(save_path=..., screenshot_path=...)
+```
