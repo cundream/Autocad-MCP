@@ -2399,6 +2399,44 @@ async def point_from_snap(
 
 
 @mcp.tool(
+    annotations={"title": "Point: Intersection (deterministic)", "readOnlyHint": True},
+    tags={"premium", "snap"},
+)
+async def point_intersection(
+    handle1: Annotated[str, "First entity handle (LINE or CIRCLE)"],
+    handle2: Annotated[str, "Second entity handle (LINE or CIRCLE)"],
+    ref_x: Annotated[float | None, "Reference X to pick nearest candidate when multiple exist"] = None,
+    ref_y: Annotated[float | None, "Reference Y"] = None,
+    ctx: Context = None,
+) -> dict:
+    """Compute the intersection of two geometry entities (LINE-LINE, LINE-CIRCLE,
+    CIRCLE-CIRCLE). When two candidates exist, ref_x/ref_y selects the nearest.
+    Returns {x, y}.
+    """
+    pt = await _backend(ctx).point_intersection(handle1, handle2, ref_x, ref_y)
+    return {"x": float(pt[0]), "y": float(pt[1])}
+
+
+@mcp.tool(
+    annotations={"title": "Point: Tangent from external point", "readOnlyHint": True},
+    tags={"premium", "snap"},
+)
+async def point_tangent(
+    circle_handle: Annotated[str, "Handle of the CIRCLE entity"],
+    from_x: Annotated[float, "X of the external point"],
+    from_y: Annotated[float, "Y of the external point"],
+    ref_x: Annotated[float | None, "Reference X to pick nearest tangent point when two exist"] = None,
+    ref_y: Annotated[float | None, "Reference Y"] = None,
+    ctx: Context = None,
+) -> dict:
+    """Compute the tangent point on a circle from an external point.
+    Returns {x, y}. Raises if the from-point is inside the circle.
+    """
+    pt = await _backend(ctx).point_tangent(circle_handle, from_x, from_y, ref_x, ref_y)
+    return {"x": float(pt[0]), "y": float(pt[1])}
+
+
+@mcp.tool(
     annotations={"title": "Construction: XLine (infinite reference)",
                  "destructiveHint": False},
     tags={"premium", "construction"},

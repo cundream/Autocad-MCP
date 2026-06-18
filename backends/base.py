@@ -702,6 +702,147 @@ class AutoCADBackend(ABC):
             "Use one of: end, mid, center, quad, perp, near."
         )
 
+    async def point_intersection(
+        self,
+        handle1: str,
+        handle2: str,
+        ref_x: float | None = None,
+        ref_y: float | None = None,
+    ) -> tuple[float, float]:
+        """Return the intersection point of two geometry entities.
+
+        Supports LINE-LINE, LINE-CIRCLE, and CIRCLE-CIRCLE cases. When
+        multiple intersections exist (e.g. two circles), ``ref_x``/``ref_y``
+        selects the candidate nearest to that reference point. If omitted the
+        first candidate is returned.
+
+        Raises RuntimeError when no real intersection exists or entity types
+        are unsupported.
+        """
+        info1 = await self.entity_get(handle1)
+        info2 = await self.entity_get(handle2)
+        t1, t2 = info1.type.upper(), info2.type.upper()
+        props1, props2 = info1.properties, info2.properties
+
+        candidates: list[tuple[float, float]] = []
+
+        if t1 == "LINE" and t2 == "LINE":
+            # Line-line intersection via parametric form
+            x1, y1 = props1["start"][0], props1["start"][1]
+            x2, y2 = props1["end"][0], props1["end"][1]
+            x3, y3 = props2["start"][0], props2["start"][1]
+            x4, y4 = props2["end"][0], props2["end"][1]
+            dx1, dy1 = x2 - x1, y2 - y1
+            dx2, dy2 = x4 - x3, y4 - y3
+            denom = dx1 * dy2 - dy1 * dx2
+            if abs(denom) < 1e-12:
+                raise RuntimeError("point_intersection: lines are parallel or coincident.")
+            t = ((x3 - x1) * dy2 - (y3 - y1) * dx2) / denom
+            candidates = [(x1 + t * dx1, y1 + t * dy1)]
+
+        elif {t1, t2} == {"LINE", "CIRCLE"}:
+            line_p = props1 if t1 == "LINE" else props2
+            circ_p = props2 if t1 == "LINE" else props1
+            lx1, ly1 = line_p["start"][0], line_p["start"][1]
+            lx2, ly2 = line_p["end"][0], line_p["end"][1]
+            cx, cy = circ_p["center"][0], circ_p["center"][1]
+            r = circ_p["radius"]
+            dx, dy = lx2 - lx1, ly2 - ly1
+            fx, fy = lx1 - cx, ly1 - cy
+            a = dx * dx + dy * dy
+            b = 2.0 * (fx * dx + fy * dy)
+            c = fx * fx + fy * fy - r * r
+            disc = b * b - 4.0 * a * c
+            if disc < 0:
+                raise RuntimeError("point_intersection: line does not intersect circle.")
+            sq = math.sqrt(disc)
+            for sign in (1, -1):
+                t = (-b + sign * sq) / (2.0 * a)
+                candidates.append((lx1 + t * dx, ly1 + t * dy))
+
+        elif t1 == "CIRCLE" and t2 == "CIRCLE":
+            cx1, cy1, r1 = props1["center"][0], props1["center"][1], props1["radius"]
+            cx2, cy2, r2 = props2["center"][0], props2["center"][1], props2["radius"]
+            dx, dy = cx2 - cx1, cy2 - cy1
+            d = math.hypot(dx, dy)
+            if d < 1e-12:
+                raise RuntimeError("point_intersection: circles are concentric.")
+            if d > r1 + r2 + 1e-9 or d < abs(r1 - r2) - 1e-9:
+                raise RuntimeError("point_intersection: circles do not intersect.")
+            a = (r1 * r1 - r2 * r2 + d * d) / (2.0 * d)
+            h_sq = r1 * r1 - a * a
+            h = math.sqrt(max(h_sq, 0.0))
+            mx = cx1 + a * dx / d
+            my = cy1 + a * dy / d
+            candidates = [
+                (mx + h * dy / d, my - h * dx / d),
+                (mx - h * dy / d, my + h * dx / d),
+            ]
+
+        else:
+            raise RuntimeError(
+                f"point_intersection: unsupported entity combination {t1}+{t2}. "
+                "Supported: LINE-LINE, LINE-CIRCLE, CIRCLE-CIRCLE."
+            )
+
+        if len(candidates) == 1:
+            return candidates[0]
+        if ref_x is not None and ref_y is not None:
+            return min(
+                candidates,
+                key=lambda p: (p[0] - float(ref_x)) ** 2 + (p[1] - float(ref_y)) ** 2,
+            )
+        return candidates[0]
+
+    async def point_tangent(
+        self,
+        circle_handle: str,
+        from_x: float,
+        from_y: float,
+        ref_x: float | None = None,
+        ref_y: float | None = None,
+    ) -> tuple[float, float]:
+        """Return the tangent point on a circle from an external point.
+
+        When two tangent points exist, ``ref_x``/``ref_y`` selects the
+        nearer one; without it, the first is returned (counter-clockwise from
+        the from-point—circle-center line).
+
+        Raises RuntimeError if the point is inside the circle.
+        """
+        info = await self.entity_get(circle_handle)
+        if info.type.upper() != "CIRCLE":
+            raise RuntimeError(
+                f"point_tangent: handle {circle_handle!r} is {info.type}, expected CIRCLE."
+            )
+        cx, cy = info.properties["center"][0], info.properties["center"][1]
+        r = info.properties["radius"]
+        fx, fy = float(from_x), float(from_y)
+        dx, dy = cx - fx, cy - fy
+        d = math.hypot(dx, dy)
+        if d < r - 1e-9:
+            raise RuntimeError(
+                f"point_tangent: from-point ({fx}, {fy}) is inside the circle "
+                f"(center ({cx}, {cy}), radius {r})."
+            )
+        if d < 1e-12:
+            raise RuntimeError("point_tangent: from-point coincides with circle center.")
+        # Tangent point T lies on the circle such that (T-F)⊥(T-C).
+        # Solving cos(θ - α) = -r/d where α = atan2(C-F) gives the two
+        # circle angles θ at which the tangent touches the perimeter.
+        alpha = math.atan2(dy, dx)          # direction from F to C
+        acos_neg = math.acos(-r / d)        # in (π/2, π) for external point
+        candidates: list[tuple[float, float]] = [
+            (cx + r * math.cos(alpha + acos_neg), cy + r * math.sin(alpha + acos_neg)),
+            (cx + r * math.cos(alpha - acos_neg), cy + r * math.sin(alpha - acos_neg)),
+        ]
+        if ref_x is not None and ref_y is not None:
+            return min(
+                candidates,
+                key=lambda p: (p[0] - float(ref_x)) ** 2 + (p[1] - float(ref_y)) ** 2,
+            )
+        return candidates[0]
+
     @abstractmethod
     async def _create_xline(
         self, x: float, y: float, dx: float, dy: float, layer: str,
