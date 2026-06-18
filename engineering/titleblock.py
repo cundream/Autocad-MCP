@@ -55,7 +55,7 @@ class TitleBlockMetadata:
 
 
 async def apply_iso_a3_titleblock(
-    backend: "AutoCADBackend",
+    backend: AutoCADBackend,
     *,
     metadata: TitleBlockMetadata,
     origin: tuple[float, float] = (0.0, 0.0),

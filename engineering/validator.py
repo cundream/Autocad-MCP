@@ -62,7 +62,7 @@ class DrawingValidator:
 
     async def run(
         self,
-        backend: "AutoCADBackend",
+        backend: AutoCADBackend,
         *,
         expected: dict | None = None,
     ) -> ValidationResult:

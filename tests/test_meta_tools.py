@@ -187,9 +187,9 @@ class TestDimensionAuto:
         assert len(dims) == 2
 
     async def test_unknown_style_raises(self, backend):
-        l = await backend.entity_create_line(0, 0, 50, 0)
+        ln = await backend.entity_create_line(0, 0, 50, 0)
         with pytest.raises(RuntimeError, match="unknown style"):
-            await backend.dimension_auto([l.handle], style="diagonal")
+            await backend.dimension_auto([ln.handle], style="diagonal")
 
     async def test_empty_handles_returns_empty(self, backend):
         result = await backend.dimension_auto([], style="chain")

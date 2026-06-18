@@ -71,7 +71,7 @@ LAYER_SET_REGISTRY: dict[str, list[tuple[str, int, str, float, str]]] = {
 STANDARD_LINETYPES: list[str] = ["CENTER", "HIDDEN", "PHANTOM", "DASHED", "DASHDOT"]
 
 
-async def ensure_standard_linetypes(backend: "AutoCADBackend") -> dict[str, str]:
+async def ensure_standard_linetypes(backend: AutoCADBackend) -> dict[str, str]:
     """Idempotently load STANDARD_LINETYPES via backend.linetype_load."""
     try:
         existing = {ln.lower() for ln in await backend.linetype_list()}
@@ -92,13 +92,13 @@ async def ensure_standard_linetypes(backend: "AutoCADBackend") -> dict[str, str]
     return results
 
 
-async def ensure_engineering_layers(backend: "AutoCADBackend") -> dict[str, str]:
+async def ensure_engineering_layers(backend: AutoCADBackend) -> dict[str, str]:
     """Idempotently create every layer in ENGINEERING_LAYERS via backend.layer_create."""
     return await apply_layer_set(backend, "mech")
 
 
 async def apply_layer_set(
-    backend: "AutoCADBackend", standard: str = "mech",
+    backend: AutoCADBackend, standard: str = "mech",
 ) -> dict[str, str]:
     """Idempotently apply a named layer set ('mech', 'pid', 'iso13567')."""
     layer_set = LAYER_SET_REGISTRY.get(standard)

@@ -4,7 +4,6 @@ Backend coverage: ezdxf only. COM tests need a live AutoCAD instance and are
 skipped unless explicitly enabled.
 """
 
-import math
 import pytest
 
 pytestmark = pytest.mark.asyncio
@@ -151,7 +150,7 @@ class TestChamfer:
         # Tangent points: (96,0) and (100,4) in some order.
         pts = sorted([tuple(s[:2]), tuple(e[:2])])
         expected = sorted([(96.0, 0.0), (100.0, 4.0)])
-        for got, exp in zip(pts, expected):
+        for got, exp in zip(pts, expected, strict=True):
             assert _close(got[0], exp[0]) and _close(got[1], exp[1])
 
     async def test_chamfer_asymmetric(self, backend):
@@ -162,7 +161,7 @@ class TestChamfer:
         e = cl.properties["end"]
         pts = sorted([tuple(s[:2]), tuple(e[:2])])
         expected = sorted([(96.0, 0.0), (100.0, 6.0)])
-        for got, exp in zip(pts, expected):
+        for got, exp in zip(pts, expected, strict=True):
             assert _close(got[0], exp[0]) and _close(got[1], exp[1])
 
     async def test_chamfer_trims_source_lines(self, backend):

@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from engineering.plan_spec import (
@@ -21,21 +21,6 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Data models
 # ---------------------------------------------------------------------------
-
-
-@dataclass
-class CommandResult:
-    ok: bool
-    payload: Any = None
-    error: str | None = None
-
-    def to_dict(self) -> dict:
-        d: dict[str, Any] = {"ok": self.ok}
-        if self.ok:
-            d["payload"] = self.payload
-        else:
-            d["error"] = self.error
-        return d
 
 
 @dataclass
@@ -91,7 +76,7 @@ class DrawingInfo:
 # ---------------------------------------------------------------------------
 
 
-def normalize_lineweight(lw: "float | int | None") -> "int | None":
+def normalize_lineweight(lw: float | int | None) -> int | None:
     """Coerce a lineweight to ezdxf/COM hundredths-of-a-mm integers.
 
     AutoCAD and ezdxf store lineweights as integer hundredths (25 == 0.25 mm),
@@ -548,17 +533,17 @@ class AutoCADBackend(ABC):
     # behaviour. The only backend-specific primitive is `_create_xline` — XLINE
     # has no cross-backend equivalent among the standard entity_create_* tools.
 
-    _plan_spec: "PlanSpec | None" = None
+    _plan_spec: PlanSpec | None = None
 
     async def drawing_plan(
         self, intent: str,
-        sheet_size: "SheetSize" = "A3",
+        sheet_size: SheetSize = "A3",
         scale: float = 1.0,
-        layer_set_id: "LayerSetId" = "mech",
+        layer_set_id: LayerSetId = "mech",
         view_count: int = 1,
-        dim_style: "DimStyle" = "chain",
+        dim_style: DimStyle = "chain",
         notes: list[str] | None = None,
-    ) -> "PlanSpec":
+    ) -> PlanSpec:
         """Commit a drawing intent before any geometry is created.
         Returns a PlanSpec held on the backend for `drawing_critique`."""
         from engineering.plan_spec import PlanSpec
@@ -575,15 +560,15 @@ class AutoCADBackend(ABC):
         return plan
 
     async def drawing_critique(
-        self, focus: list["CritiqueFocus"] | None = None,
-    ) -> list["Issue"]:
+        self, focus: list[CritiqueFocus] | None = None,
+    ) -> list[Issue]:
         """Run premium-quality checks; return zero issues before
         `drawing_finalize`. `focus=None` runs all checks."""
         from engineering.critique import run_critique
         return await run_critique(self, focus)
 
     async def point_from_snap(
-        self, handle: str, snap: "SnapType",
+        self, handle: str, snap: SnapType,
         ref_x: float | None = None, ref_y: float | None = None,
     ) -> tuple[float, float]:
         """Return a deterministic snap point on `handle`.
@@ -769,7 +754,7 @@ class AutoCADBackend(ABC):
         return {"ok": True, "layer": layer, "deleted": deleted}
 
     async def drawing_apply_iso_layers(
-        self, standard: "LayerSetId" = "mech",
+        self, standard: LayerSetId = "mech",
     ) -> dict:
         """Bootstrap a full ISO-conformant layer set with correct colors
         and lineweights. Idempotent."""
@@ -778,7 +763,7 @@ class AutoCADBackend(ABC):
         return {"ok": True, "standard": standard, "layers": result}
 
     async def dimension_auto(
-        self, handles: list[str], style: "DimStyle" = "chain",
+        self, handles: list[str], style: DimStyle = "chain",
         offset: float = 10.0,
     ) -> list[EntityInfo]:
         """Generate ISO 129 dimensions across `handles` in the chosen style
@@ -828,7 +813,7 @@ class AutoCADBackend(ABC):
             dx, dy = ex0 - sx0, ey0 - sy0
             L0 = math.hypot(dx, dy) or 1.0
             ux, uy = dx / L0, dy / L0
-            for i, (sx, sy, ex, ey) in enumerate(segs):
+            for i, (_sx, _sy, ex, ey) in enumerate(segs):
                 dim = await self.dimension_linear(
                     sx0, sy0, ex, ey,
                     sx0 - uy * (off + i * off), sy0 + ux * (off + i * off),
@@ -906,32 +891,6 @@ class AutoCADBackend(ABC):
 
         return [e for e in ents if _ok(e)]
 
-    # ── concrete helpers (use existing primitives) ──────────────────────────
-    async def set_layer_active(self, name: str) -> None:
-        """Convenience: alias for layer_set_current. Concrete; backends need not override."""
-        await self.layer_set_current(name)
-
-    async def ensure_linetypes(
-        self, names: list[str], file: str | None = None,
-    ) -> dict[str, str]:
-        """Idempotently load each linetype in `names`. Returns {name: status}.
-        Status is one of: 'already_loaded', 'loaded', 'failed: <msg>'.
-        """
-        try:
-            current = {ln.lower() for ln in await self.linetype_list()}
-        except Exception:
-            current = set()
-        results: dict[str, str] = {}
-        for n in names:
-            if n.lower() in current:
-                results[n] = "already_loaded"
-                continue
-            try:
-                await self.linetype_load(n, file=file)
-                results[n] = "loaded"
-            except Exception as exc:
-                results[n] = f"failed: {exc}"
-        return results
 
 
 # ---------------------------------------------------------------------------

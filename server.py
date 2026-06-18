@@ -287,10 +287,11 @@ async def drawing_new(
             )
             lt_status = await ensure_standard_linetypes(backend)
             layer_status = await ensure_engineering_layers(backend)
-            result["bootstrap"] = {"linetypes": lt_status, "layers": layer_status}
+            result["bootstrap"] = {"ok": True, "linetypes": lt_status, "layers": layer_status}
         except Exception as exc:
-            await ctx.warning(f"Engineering bootstrap skipped: {exc}")
-            result["bootstrap"] = {"error": str(exc)}
+            await ctx.warning(f"Engineering bootstrap failed: {exc}")
+            result["bootstrap"] = {"ok": False, "error": str(exc)}
+            result["status"] = "degraded"
     return result
 
 
@@ -2263,7 +2264,7 @@ async def titleblock_apply_iso_a3(
     ctx: Context = None,
 ) -> dict:
     """ISO 7200 / A3 (420x297 mm) title block. Title text is used verbatim."""
-    from engineering import apply_iso_a3_titleblock, TitleBlockMetadata
+    from engineering import TitleBlockMetadata, apply_iso_a3_titleblock
     backend = _backend(ctx)
     metadata = TitleBlockMetadata(
         title=title, drawing_no=drawing_no, part_no=part_no, material=material,
@@ -2296,7 +2297,9 @@ async def drawing_finalize(
 
     if save_path:
         validated = validate_path(save_path, allow_write=True)
-        await backend.drawing_save_as(str(validated))
+        from pathlib import Path as _P
+        _fmt = _P(str(validated)).suffix.lstrip(".").lower() or "dxf"
+        await backend.drawing_save_as(str(validated), fmt=_fmt)
 
     if screenshot_path:
         validated_shot = validate_path(screenshot_path, allow_write=True)

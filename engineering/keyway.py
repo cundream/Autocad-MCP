@@ -56,7 +56,7 @@ def keyway_dimensions(bore_diameter: float) -> dict:
 
 
 async def draw_keyed_bore(
-    backend: "AutoCADBackend",
+    backend: AutoCADBackend,
     *,
     center: tuple[float, float],
     bore_diameter: float,
@@ -110,7 +110,7 @@ async def draw_keyed_bore(
 
 
 async def draw_keyway_section(
-    backend: "AutoCADBackend",
+    backend: AutoCADBackend,
     *,
     center: tuple[float, float],
     bore_diameter: float,

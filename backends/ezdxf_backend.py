@@ -51,11 +51,6 @@ except ImportError:
 # Helper utilities
 # ---------------------------------------------------------------------------
 
-_ACI_NAMES = {
-    1: "Red", 2: "Yellow", 3: "Green", 4: "Cyan",
-    5: "Blue", 6: "Magenta", 7: "White", 256: "ByLayer", 0: "ByBlock",
-}
-
 _BUILTIN_LINETYPES = {"continuous", "bylayer", "byblock"}
 
 # AutoCAD-shipped linetypes that ezdxf.tools.standards does not include.
@@ -344,12 +339,17 @@ class EzdxfBackend(AutoCADBackend):
         return await self._async(_sync)
 
     async def drawing_save_as(self, path: str, fmt: str = "dxf") -> dict:
+        if fmt.lower() == "dwg":
+            raise RuntimeError(
+                "ezdxf backend cannot write true DWG binary. "
+                "Use save_path with a .dxf extension, or switch to the COM backend."
+            )
         def _sync():
             doc = self._require_doc()
             doc.saveas(path)
             self._doc_path = path
             self._dirty = False
-            return {"ok": True, "path": path, "format": fmt}
+            return {"ok": True, "path": path, "format": "dxf"}
         return await self._async(_sync)
 
     async def drawing_export_dxf(self, path: str) -> dict:
@@ -693,7 +693,7 @@ class EzdxfBackend(AutoCADBackend):
             dim = msp.add_aligned_dim(
                 p1=(float(x1), float(y1)),
                 p2=(float(x2), float(y2)),
-                dist=math.sqrt((float(dim_x) - float(x1)) ** 2 + (float(dim_y) - float(y1)) ** 2),
+                distance=math.sqrt((float(dim_x) - float(x1)) ** 2 + (float(dim_y) - float(y1)) ** 2),
             )
             dim.render()
             ent = dim.dimension
@@ -708,11 +708,12 @@ class EzdxfBackend(AutoCADBackend):
     ) -> EntityInfo:
         def _sync():
             msp = self._msp()
+            vxf, vyf = float(vx), float(vy)
             dim = msp.add_angular_dim_2l(
-                center=(float(vx), float(vy)),
-                p1=(float(x1), float(y1)),
-                p2=(float(x2), float(y2)),
-                distance=10.0,
+                base=(float(tx), float(ty)),
+                line1=((vxf, vyf), (float(x1), float(y1))),
+                line2=((vxf, vyf), (float(x2), float(y2))),
+                location=(float(tx), float(ty)),
             )
             dim.render()
             ent = dim.dimension
@@ -875,11 +876,19 @@ class EzdxfBackend(AutoCADBackend):
             d = float(distance)
 
             if ent_type == "LINE":
-                # Offset a line: move parallel
+                # Offset a line: move parallel; side_x/side_y selects which side
                 start = Vec2(ent.dxf.start.x, ent.dxf.start.y)
                 end = Vec2(ent.dxf.end.x, ent.dxf.end.y)
                 direction = (end - start).normalize()
-                normal = Vec2(-direction.y, direction.x) * d
+                left_normal = Vec2(-direction.y, direction.x)
+                # Determine sign: positive = left side (default); flip if side point is on right
+                sign = 1.0
+                if side_x is not None and side_y is not None:
+                    mid = (start + end) * 0.5
+                    side_vec = Vec2(float(side_x), float(side_y)) - mid
+                    if left_normal.dot(side_vec) < 0:
+                        sign = -1.0
+                normal = left_normal * (d * sign)
                 new_start = start + normal
                 new_end = end + normal
                 msp = self._msp()
@@ -893,7 +902,13 @@ class EzdxfBackend(AutoCADBackend):
 
             elif ent_type == "CIRCLE":
                 cx, cy = ent.dxf.center.x, ent.dxf.center.y
-                new_r = ent.dxf.radius + d
+                # side_x/side_y selects inside (shrink) or outside (grow); default = outside
+                sign = 1.0
+                if side_x is not None and side_y is not None:
+                    dist_to_center = math.sqrt((float(side_x) - cx) ** 2 + (float(side_y) - cy) ** 2)
+                    if dist_to_center < ent.dxf.radius:
+                        sign = -1.0
+                new_r = ent.dxf.radius + d * sign
                 if new_r <= 0:
                     raise ValueError("Offset distance too large for circle")
                 msp = self._msp()
@@ -944,8 +959,12 @@ class EzdxfBackend(AutoCADBackend):
             from ezdxf.math import Matrix44
             results = []
             cx, cy = float(center_x), float(center_y)
-            step = math.radians(float(fill_angle)) / max(int(count) - 1, 1)
-            for i in range(1, int(count)):
+            fa = float(fill_angle)
+            n = int(count)
+            # 360° full circle: n copies evenly spaced, no duplicate at 0°
+            divisor = n if abs(fa % 360.0) < 1e-6 else max(n - 1, 1)
+            step = math.radians(fa) / divisor
+            for i in range(1, n):
                 copy = ent.copy()
                 msp.add_entity(copy)
                 angle = step * i
@@ -1535,7 +1554,7 @@ class EzdxfBackend(AutoCADBackend):
 
     async def entity_trim(self, target_handle, cutter_handle, keep_x, keep_y) -> EntityInfo:
         def _sync():
-            from ezdxf.math import intersection_line_line_2d, Vec2
+            from ezdxf.math import Vec2, intersection_line_line_2d
             target = self._get_entity(target_handle)
             cutter = self._get_entity(cutter_handle)
             if target.dxftype() != "LINE" or cutter.dxftype() != "LINE":
@@ -1574,7 +1593,7 @@ class EzdxfBackend(AutoCADBackend):
         self, target_handle, boundary_handle, end_x=None, end_y=None,
     ) -> EntityInfo:
         def _sync():
-            from ezdxf.math import intersection_line_line_2d, Vec2
+            from ezdxf.math import Vec2, intersection_line_line_2d
             target = self._get_entity(target_handle)
             boundary = self._get_entity(boundary_handle)
             if target.dxftype() != "LINE" or boundary.dxftype() != "LINE":
@@ -1616,7 +1635,7 @@ class EzdxfBackend(AutoCADBackend):
         """Shared geometry setup for fillet/chamfer.
         Returns (line1, line2, P, d1, d2, A_far, B_far, theta) where d1/d2 are
         unit vectors from intersection P toward the far endpoint of each line."""
-        from ezdxf.math import intersection_line_line_2d, Vec2
+        from ezdxf.math import Vec2, intersection_line_line_2d
         line1 = self._get_entity(handle1)
         line2 = self._get_entity(handle2)
         if line1.dxftype() != "LINE" or line2.dxftype() != "LINE":

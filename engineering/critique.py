@@ -34,7 +34,7 @@ _DIM_TYPES = {
 }
 
 
-async def _check_iso128(backend: "AutoCADBackend") -> list[Issue]:
+async def _check_iso128(backend: AutoCADBackend) -> list[Issue]:
     """Layer lineweights must be in ISO_128_LINEWEIGHTS_MM (or -3=ByLayer
     sentinel meaning 'inherit')."""
     issues: list[Issue] = []
@@ -69,7 +69,7 @@ async def _check_iso128(backend: "AutoCADBackend") -> list[Issue]:
     return issues
 
 
-async def _check_layer_color(backend: "AutoCADBackend") -> list[Issue]:
+async def _check_layer_color(backend: AutoCADBackend) -> list[Issue]:
     """Engineering-standard layers must keep their canonical ACI color."""
     issues: list[Issue] = []
     try:
@@ -93,7 +93,7 @@ async def _check_layer_color(backend: "AutoCADBackend") -> list[Issue]:
     return issues
 
 
-async def _check_construction_left(backend: "AutoCADBackend") -> list[Issue]:
+async def _check_construction_left(backend: AutoCADBackend) -> list[Issue]:
     """CONSTRUCTION layer must be empty before drawing_finalize."""
     try:
         ents = await backend.entity_list(layer_filter="CONSTRUCTION", limit=5000)
@@ -113,7 +113,7 @@ async def _check_construction_left(backend: "AutoCADBackend") -> list[Issue]:
     )]
 
 
-async def _check_untrimmed_corner(backend: "AutoCADBackend") -> list[Issue]:
+async def _check_untrimmed_corner(backend: AutoCADBackend) -> list[Issue]:
     """Two LINE endpoints within `tol` but not exactly equal usually means a
     corner where one line overshoots — TRIM/EXTEND/FILLET was forgotten."""
     tol = 0.5  # mm — generous; tighten via PlanSpec.notes later
@@ -156,7 +156,7 @@ async def _check_untrimmed_corner(backend: "AutoCADBackend") -> list[Issue]:
     return issues
 
 
-async def _check_duplicate_entities(backend: "AutoCADBackend") -> list[Issue]:
+async def _check_duplicate_entities(backend: AutoCADBackend) -> list[Issue]:
     """Two LINEs with identical endpoints (in either direction) are duplicates."""
     try:
         lines = await backend.entity_list(type_filter="LINE", limit=5000)
@@ -185,7 +185,7 @@ async def _check_duplicate_entities(backend: "AutoCADBackend") -> list[Issue]:
     return issues
 
 
-async def _check_dim_overlap(backend: "AutoCADBackend") -> list[Issue]:
+async def _check_dim_overlap(backend: AutoCADBackend) -> list[Issue]:
     """Two dimensions whose insertion points are within `tol` likely overlap."""
     tol = 5.0  # mm
     try:
@@ -232,7 +232,7 @@ _FOCUS_DISPATCH = {
 
 
 async def run_critique(
-    backend: "AutoCADBackend",
+    backend: AutoCADBackend,
     focus: list[CritiqueFocus] | None = None,
 ) -> list[Issue]:
     """Dispatch each requested focus check and return aggregated issues."""

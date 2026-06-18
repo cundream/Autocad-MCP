@@ -360,7 +360,6 @@ class ComBackend(AutoCADBackend):
 
     def __init__(self):
         self._executor: ThreadPoolExecutor | None = None
-        self._batch_mode = False
         self._connected = False
         self._transaction_active = False
 
@@ -413,7 +412,7 @@ class ComBackend(AutoCADBackend):
             if timeout > 0:
                 return await asyncio.wait_for(future, timeout=timeout)
             return await future
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             log.error("COM call timed out after %.1fs; rebuilding executor", timeout)
             # The worker thread is still blocked inside SendCommand and cannot be
             # cancelled. Abandon it (shutdown(wait=False)) and start a fresh
@@ -656,7 +655,7 @@ class ComBackend(AutoCADBackend):
         def _sync():
             mspace = _msp()
             # acPatternTypePreDefined = 0
-            hatch = mspace.AddHatch(0, pattern, True)
+            hatch = mspace.AddHatch(0, pattern, False)
             hatch.PatternScale = float(scale)
             hatch.PatternAngle = deg2rad(angle)
             # Build outer loop as a temporary lwpolyline
@@ -886,7 +885,6 @@ class ComBackend(AutoCADBackend):
         self, handle, rows, cols, row_spacing, col_spacing,
     ) -> list[EntityInfo]:
         def _sync():
-            self._batch_mode = True
             _COM_STATE["batch_mode"] = True
             try:
                 doc = _acad_doc()
@@ -904,7 +902,6 @@ class ComBackend(AutoCADBackend):
                     entities.append(_entity_info(result))
                 return entities
             finally:
-                self._batch_mode = False
                 _COM_STATE["batch_mode"] = False
                 _regen()
         return await self._run(_sync)
@@ -913,7 +910,6 @@ class ComBackend(AutoCADBackend):
         self, handle, count, fill_angle, center_x, center_y,
     ) -> list[EntityInfo]:
         def _sync():
-            self._batch_mode = True
             _COM_STATE["batch_mode"] = True
             try:
                 doc = _acad_doc()
@@ -930,7 +926,6 @@ class ComBackend(AutoCADBackend):
                     entities.append(_entity_info(result))
                 return entities
             finally:
-                self._batch_mode = False
                 _COM_STATE["batch_mode"] = False
                 _regen()
         return await self._run(_sync)

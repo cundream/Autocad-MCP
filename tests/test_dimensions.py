@@ -13,14 +13,12 @@ async def test_dimension_linear(backend):
     assert info.type == "DIMENSION"
 
 
-@pytest.mark.xfail(reason="ezdxf API parameter mismatch in add_aligned_dim", strict=False)
 async def test_dimension_aligned(backend):
     info = await backend.dimension_aligned(0, 0, 100, 50, 50, 60)
     assert info.handle
     assert info.type == "DIMENSION"
 
 
-@pytest.mark.xfail(reason="ezdxf API parameter mismatch in add_angular_dim_2l", strict=False)
 async def test_dimension_angular(backend):
     info = await backend.dimension_angular(0, 0, 100, 0, 0, 100, 50, 50)
     assert info.handle
