@@ -25,6 +25,7 @@ from .base import (
     EntityInfo,
     LayerInfo,
     deg2rad,
+    normalize_lineweight,
     rad2deg,
     shoelace_area,
 )
@@ -958,7 +959,7 @@ class ComBackend(AutoCADBackend):
                 _ensure_linetype_loaded(linetype)
                 ent.Linetype = linetype
             if lineweight is not None:
-                ent.LineWeight = int(lineweight)
+                ent.LineWeight = normalize_lineweight(lineweight)
             if visible is not None:
                 ent.Visible = bool(visible)
             return {"ok": True, "handle": handle}
@@ -1023,7 +1024,7 @@ class ComBackend(AutoCADBackend):
                 lyr.Linetype = linetype
             except Exception as exc:
                 log.warning("Failed to set linetype '%s' on layer '%s': %s", linetype, name, exc)
-            lyr.LineWeight = int(lineweight)
+            lyr.LineWeight = normalize_lineweight(lineweight)
             return _layer_info(lyr, doc.ActiveLayer.Name)
         return await self._run(_sync)
 
@@ -1055,7 +1056,7 @@ class ComBackend(AutoCADBackend):
                 _ensure_linetype_loaded(linetype)
                 lyr.Linetype = linetype
             if lineweight is not None:
-                lyr.LineWeight = int(lineweight)
+                lyr.LineWeight = normalize_lineweight(lineweight)
             return _layer_info(lyr, doc.ActiveLayer.Name)
         return await self._run(_sync)
 
@@ -1633,28 +1634,18 @@ class ComBackend(AutoCADBackend):
             return _entity_info(doc.HandleToObject(handle1))
         return await self._run(_sync)
 
-    # ── premium meta-tools (Task #7/#8/#9 implement these) ──────────────────
-    async def drawing_plan(self, intent, sheet_size="A3", scale=1.0,
-                           layer_set_id="mech", view_count=1, dim_style="chain", notes=None):
-        raise NotImplementedError("drawing_plan — pending Task #8")
-
-    async def drawing_critique(self, focus=None):
-        raise NotImplementedError("drawing_critique — pending Task #8")
-
-    async def point_from_snap(self, handle, snap, ref_x=None, ref_y=None):
-        raise NotImplementedError("point_from_snap — pending Task #7")
-
-    async def construction_xline(self, x, y, angle_deg, layer="CONSTRUCTION"):
-        raise NotImplementedError("construction_xline — pending Task #7")
-
-    async def construction_clear(self, layer="CONSTRUCTION"):
-        raise NotImplementedError("construction_clear — pending Task #7")
-
-    async def drawing_apply_iso_layers(self, standard="mech"):
-        raise NotImplementedError("drawing_apply_iso_layers — pending Task #9")
-
-    async def dimension_auto(self, handles, style="chain", offset=10.0):
-        raise NotImplementedError("dimension_auto — pending Task #9")
-
-    async def entity_select_smart(self, predicate):
-        raise NotImplementedError("entity_select_smart — pending Task #9")
+    # ── premium meta-tools live on AutoCADBackend (base.py) and are shared by
+    # both backends. Only the XLINE primitive is backend-specific. ────────────
+    async def _create_xline(self, x, y, dx, dy, layer) -> EntityInfo:
+        def _sync():
+            mspace = _msp()
+            # AutoCAD ActiveX AddXline takes two points the line passes through;
+            # derive the second from the base point + direction vector.
+            xline = mspace.AddXline(
+                _apoint(float(x), float(y)),
+                _apoint(float(x) + float(dx), float(y) + float(dy)),
+            )
+            _apply_entity_attrs(xline, layer, None, None)
+            _regen()
+            return _entity_info(xline)
+        return await self._run(_sync)

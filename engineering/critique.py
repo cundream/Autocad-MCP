@@ -44,13 +44,18 @@ async def _check_iso128(backend: "AutoCADBackend") -> list[Issue]:
         return [Issue("warning", "iso128", f"layer_list failed: {exc}")]
     allowed = set(ISO_128_LINEWEIGHTS_MM)
     for lyr in layers:
+        # CONSTRUCTION-class layers are intentionally sub-ISO (0.05mm scratch
+        # weight) and must be cleared before finalize — never an ISO violation.
+        if "CONST" in lyr.name.upper():
+            continue
         lw = float(lyr.lineweight)
         # AutoCAD sentinels: -1 (Default), -2 (ByBlock), -3 (ByLayer);
         # 0.0 = ezdxf's "use default" — not an ISO 128 violation.
         if lw <= 0:
             continue
-        # ezdxf returns lineweight in mm-hundredths (e.g. 25 = 0.25mm) for
-        # some entity properties; the layer dataclass already normalises to mm.
+        # Layer lineweights come through as ezdxf/COM hundredths-of-a-mm
+        # (e.g. 25 == 0.25mm) — they are NOT pre-normalised to mm, so accept
+        # either the raw mm value or hundredths/100.
         if lw not in allowed and (lw / 100.0) not in allowed:
             issues.append(Issue(
                 severity="warning",
