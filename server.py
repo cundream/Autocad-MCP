@@ -21,6 +21,7 @@ from typing import Annotated, Any
 
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.server.auth import StaticTokenVerifier
 from fastmcp.server.lifespan import lifespan
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
@@ -147,11 +148,29 @@ class AuditMiddleware(Middleware):
 
 
 # ---------------------------------------------------------------------------
+# HTTP auth
+# ---------------------------------------------------------------------------
+
+_auth = (
+    StaticTokenVerifier(
+        tokens={
+            config.settings.mcp_auth_token: {
+                "client_id": "mcp-http-client",
+                "scopes": ["mcp:read", "mcp:write"],
+            }
+        }
+    )
+    if config.settings.mcp_auth_token
+    else None
+)
+
+# ---------------------------------------------------------------------------
 # FastMCP server
 # ---------------------------------------------------------------------------
 
 mcp = FastMCP(
     name="AutoCAD MCP Pro",
+    auth=_auth,
     instructions="""
 AutoCAD MCP Pro provides complete AutoCAD automation through a large tool surface.
 
