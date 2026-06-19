@@ -28,7 +28,7 @@ sprints (see `docs/analysis/`). 318 tests, ruff-clean.
 - `entity_create_mtext` rotation parameter; `dimension_auto` layer override; `bounding_box` /
   ARC `length` / TEXT-MTEXT `rotation`+`char_height` on both backends; `BlockInfo.description`.
 - Security module (`security.py`), centralized config (`config.py`), `.env.example`, path
-  validation, command/LISP sanitization, ruff config, pre-commit hooks, pytest-cov, GitHub Actions CI.
+  validation, command/LISP sanitization, ruff config, pre-commit hooks, pytest-cov.
 
 ### Changed
 - **`drawing_finalize` now enforces the premium critique** in addition to the structural validator:

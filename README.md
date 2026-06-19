@@ -83,7 +83,7 @@ AutoCAD MCP Pro takes a different stance:
   - Middleware stack: error handling, audit logging, timing, request logging
   - Structured progress reports for long-running operations (`drawing_open`, exports, batch ops)
   - 318 tests across drawing, entity, dimension, layer, block, analysis, batch/template, engineering, premium, mocked-COM, and security suites
-  - Ruff-clean codebase, GitHub Actions CI
+  - Ruff-clean codebase, 318-test suite
 
 - **Closed-Loop Quality Gate**
   - `drawing_finalize` runs **both** the 8-step structural validator **and** the premium ISO-128 critique (lineweights, layer colors, untrimmed corners, duplicate entities, leftover construction, dimension overlap) — leftover scaffolding or a non-standard lineweight blocks the gate instead of slipping through.
