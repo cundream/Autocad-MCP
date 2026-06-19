@@ -68,6 +68,23 @@ LAYER_SET_REGISTRY: dict[str, list[tuple[str, int, str, float, str]]] = {
     "iso13567": ISO13567_LAYERS,
 }
 
+# Role → layer name, per layer set. Lets dimension_auto / construction ops
+# resolve the correct layer for the active standard instead of hardcoding
+# "DIM"/"CONSTRUCTION" (which only exist in the mech/pid sets — iso13567 uses
+# M-DIMEN-T-N / M-CONST-E-N).
+LAYER_ROLES: dict[str, dict[str, str]] = {
+    "mech":     {"dim": "DIM",          "construction": "CONSTRUCTION"},
+    "pid":      {"dim": "DIM",          "construction": "CONSTRUCTION"},
+    "iso13567": {"dim": "M-DIMEN-T-N",  "construction": "M-CONST-E-N"},
+}
+
+
+def resolve_role_layer(layer_set_id: str | None, role: str) -> str:
+    """Resolve the layer name for `role` ('dim' | 'construction') in the active
+    layer set, falling back to the mech/default name when unknown."""
+    roles = LAYER_ROLES.get(layer_set_id or "mech", LAYER_ROLES["mech"])
+    return roles.get(role, LAYER_ROLES["mech"][role])
+
 STANDARD_LINETYPES: list[str] = ["CENTER", "HIDDEN", "PHANTOM", "DASHED", "DASHDOT"]
 
 

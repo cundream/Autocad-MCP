@@ -30,6 +30,25 @@ from .base import (
 
 log = logging.getLogger(__name__)
 
+
+def _new_agg_figure(*, figsize=None, dpi=100):
+    """Create a matplotlib Figure bound to the headless Agg canvas.
+
+    Rendering runs inside an ``asyncio.to_thread`` worker. ``pyplot.figure``
+    selects a *GUI* backend from global state (Qt/Tk), and instantiating a GUI
+    canvas off the main thread can hard-crash the interpreter (SIGSEGV). Using
+    ``Figure`` + ``FigureCanvasAgg`` directly bypasses pyplot's global backend
+    selection entirely and is thread-safe; ``savefig`` still dispatches to the
+    PDF backend by file extension when needed.
+    """
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+
+    fig = Figure(figsize=figsize, dpi=dpi)
+    FigureCanvasAgg(fig)  # binds fig.canvas to Agg (no pyplot, no GUI)
+    return fig
+
+
 try:
     import ezdxf
     from ezdxf import colors, units  # noqa: F401
@@ -132,6 +151,9 @@ def _entity_info_dxf(ent) -> EntityInfo:
             props["radius"] = ent.dxf.radius
             props["start_angle"] = ent.dxf.start_angle
             props["end_angle"] = ent.dxf.end_angle
+            # Arc length (N3) so entity_select_smart length_range works on ARCs.
+            _sweep = (ent.dxf.end_angle - ent.dxf.start_angle) % 360.0
+            props["length"] = ent.dxf.radius * math.radians(_sweep)
         elif ent_type == "LWPOLYLINE":
             props["points"] = [[float(pt[0]), float(pt[1])] for pt in ent.get_points()]
             props["closed"] = ent.closed
@@ -145,6 +167,7 @@ def _entity_info_dxf(ent) -> EntityInfo:
             props["text"] = ent.text
             props["insertion"] = _v2(ent.dxf.insert)
             props["char_height"] = ent.dxf.char_height
+            props["rotation"] = ent.dxf.get("rotation", 0.0)
         elif ent_type == "INSERT":
             props["block_name"] = ent.dxf.name
             props["insertion"] = _v2(ent.dxf.insert)
@@ -159,11 +182,36 @@ def _entity_info_dxf(ent) -> EntityInfo:
             if ent.dxf.hasattr("fit_points"):
                 props["fit_point_count"] = len(list(ent.fit_points))
             props["degree"] = ent.dxf.degree
-        elif ent_type in ("DIMLINEAR", "DIMALIGNED", "DIMANGULAR",
-                          "DIMRADIUS", "DIMDIAMETER"):
+        elif ent_type in ("DIMENSION", "DIMLINEAR", "DIMALIGNED", "DIMANGULAR",
+                          "DIMRADIUS", "DIMDIAMETER", "DIMORDINATE"):
             props["dim_type"] = ent_type
+            # Reference points for dim_overlap critique. ezdxf dimensions carry
+            # a definition point and (usually) the text midpoint.
+            try:
+                props["defpoint"] = _v2(ent.dxf.defpoint)
+            except Exception:
+                pass
+            try:
+                tm = ent.dxf.get("text_midpoint", None)
+                if tm is not None:
+                    props["text_position"] = _v2(tm)
+            except Exception:
+                pass
     except Exception as exc:
         log.debug("extracting entity properties for %s: %s", ent_type, exc)
+
+    # bounding_box parity with the COM backend (same {min,max} shape) so clients
+    # reading properties["bounding_box"] work on both engines (N5).
+    try:
+        from ezdxf import bbox as _bbox
+        _bb = _bbox.extents([ent])
+        if _bb.has_data:
+            props["bounding_box"] = {
+                "min": [float(_bb.extmin.x), float(_bb.extmin.y)],
+                "max": [float(_bb.extmax.x), float(_bb.extmax.y)],
+            }
+    except Exception as exc:
+        log.debug("bbox extents failed for %s: %s", ent_type, exc)
 
     return EntityInfo(
         handle=str(handle),
@@ -361,17 +409,15 @@ class EzdxfBackend(AutoCADBackend):
             doc = self._require_doc()
             msp = self._msp()
             try:
-                import matplotlib.pyplot as plt
                 from ezdxf.addons.drawing import Frontend, RenderContext
                 from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
 
-                fig = plt.figure()
+                fig = _new_agg_figure()
                 ax = fig.add_axes([0, 0, 1, 1])
                 ctx = RenderContext(doc)
                 out = MatplotlibBackend(ax)
                 Frontend(ctx, out).draw_layout(msp, finalize=True)
                 fig.savefig(path, dpi=150)
-                plt.close(fig)
                 return {"ok": True, "path": path}
             except ImportError:
                 raise RuntimeError(
@@ -469,9 +515,11 @@ class EzdxfBackend(AutoCADBackend):
         return await self._async(_sync)
 
     async def drawing_undo(self) -> dict:
-        if not self._undo_stack:
-            return {"ok": False, "error": "Nothing to undo (no undo history in ezdxf backend)"}
+        # NEW-undo-1: read+mutate _undo_stack under self._lock (via _async) so
+        # the empty-check and the pop are serialized with all other sync work.
         def _sync():
+            if not self._undo_stack:
+                return {"ok": False, "error": "Nothing to undo (no undo history in ezdxf backend)"}
             p = self._undo_stack.pop()
             try:
                 self._doc = ezdxf.readfile(str(p))
@@ -499,6 +547,10 @@ class EzdxfBackend(AutoCADBackend):
         if color is not None:
             entity.dxf.color = int(color)
         if linetype is not None:
+            # R24: load HIDDEN/CENTER/etc. on demand before assignment so the
+            # linetype actually renders instead of silently falling back to
+            # Continuous. Same loader used in entity_set_properties/layer_*.
+            _ensure_linetype_loaded(self._require_doc(), linetype)
             entity.dxf.linetype = linetype
 
     def _mark_dirty(self):
@@ -577,7 +629,7 @@ class EzdxfBackend(AutoCADBackend):
         return await self._async(_sync)
 
     async def entity_create_mtext(
-        self, text, x, y, width=100.0, height=2.5, layer=None, color=None,
+        self, text, x, y, width=100.0, height=2.5, rotation=0.0, layer=None, color=None,
     ) -> EntityInfo:
         def _sync():
             msp = self._msp()
@@ -586,6 +638,8 @@ class EzdxfBackend(AutoCADBackend):
                 dxfattribs={"char_height": float(height), "width": float(width)},
             )
             ent.dxf.insert = (float(x), float(y), 0.0)
+            if rotation:
+                ent.dxf.rotation = float(rotation)  # NEW-mtext-1: honor caller rotation
             self._apply_attrs(ent, layer, color)
             self._mark_dirty()
             return _entity_info_dxf(ent)
@@ -1212,12 +1266,15 @@ class EzdxfBackend(AutoCADBackend):
                 )
                 origin = blk.block.dxf.get("base_point", (0.0, 0.0, 0.0))
                 is_xref = bool(blk.block.dxf.get("xref_path", ""))
+                # S3: surface the block definition's description instead of always "".
+                description = blk.block.dxf.get("description", "")
                 blocks.append(BlockInfo(
                     name=blk.name,
                     origin=(origin[0], origin[1]),
                     attribute_count=attr_count,
                     entity_count=len(list(blk)),
                     is_xref=is_xref,
+                    description=description,
                 ))
             return blocks
         return await self._async(_sync)
@@ -1412,10 +1469,23 @@ class EzdxfBackend(AutoCADBackend):
     # ── view / screenshot ──────────────────────────────────────────────────────
 
     async def view_zoom_extents(self) -> dict:
-        return {"ok": True, "message": "Zoom extents not applicable for ezdxf backend (no display)"}
+        # R26/N9: ezdxf has no viewport, so framing is never actually applied.
+        # Return applied=False with a consistent shape so a client cannot mistake
+        # the no-op for real framing.
+        return {
+            "ok": True,
+            "applied": False,
+            "message": "Zoom extents not applicable for ezdxf backend (no display/viewport)",
+        }
 
     async def view_zoom_window(self, x1, y1, x2, y2) -> dict:
-        return {"ok": True, "message": "Zoom window not applicable for ezdxf backend (no display)"}
+        # R26/N9: window region is ignored (no viewport). Consistent shape with
+        # view_zoom_extents; applied=False signals the framing was not honored.
+        return {
+            "ok": True,
+            "applied": False,
+            "message": "Zoom window not applicable for ezdxf backend (no display/viewport)",
+        }
 
     async def view_screenshot(self) -> bytes | None:
         """Render drawing to PNG using matplotlib."""
@@ -1423,11 +1493,10 @@ class EzdxfBackend(AutoCADBackend):
             try:
                 doc = self._require_doc()
                 msp = self._msp()
-                import matplotlib.pyplot as plt
                 from ezdxf.addons.drawing import Frontend, RenderContext
                 from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
 
-                fig = plt.figure(figsize=(16, 9), dpi=100)
+                fig = _new_agg_figure(figsize=(16, 9), dpi=100)
                 ax = fig.add_axes([0, 0, 1, 1])
                 ctx = RenderContext(doc)
                 out = MatplotlibBackend(ax)
@@ -1435,7 +1504,6 @@ class EzdxfBackend(AutoCADBackend):
 
                 buf = io.BytesIO()
                 fig.savefig(buf, format="png", bbox_inches="tight", dpi=100)
-                plt.close(fig)
                 buf.seek(0)
                 return buf.read()
             except ImportError:
@@ -1470,19 +1538,25 @@ class EzdxfBackend(AutoCADBackend):
         return await self._async(_sync)
 
     async def transaction_commit(self) -> dict:
-        if not self._undo_stack:
-            return {"ok": False, "error": "No active transaction"}
-        p = self._undo_stack.pop()
-        try:
-            p.unlink()
-        except OSError:
-            pass
-        return {"ok": True, "message": "Transaction committed (snapshot discarded)"}
+        # NEW-undo-1: guard the _undo_stack read+pop with self._lock (via _async)
+        # instead of touching it outside any lock.
+        def _sync():
+            if not self._undo_stack:
+                return {"ok": False, "error": "No active transaction"}
+            p = self._undo_stack.pop()
+            try:
+                p.unlink()
+            except OSError:
+                pass
+            return {"ok": True, "message": "Transaction committed (snapshot discarded)"}
+        return await self._async(_sync)
 
     async def transaction_rollback(self) -> dict:
-        if not self._undo_stack:
-            return {"ok": False, "error": "No active transaction to rollback"}
+        # NEW-undo-1: read+mutate _undo_stack under self._lock (via _async) so the
+        # empty-check and the pop/readfile are serialized with other sync work.
         def _sync():
+            if not self._undo_stack:
+                return {"ok": False, "error": "No active transaction to rollback"}
             p = self._undo_stack.pop()
             try:
                 self._doc = ezdxf.readfile(str(p))

@@ -22,6 +22,14 @@ DIMENSION_LIKE_TEXT = re.compile(
     re.IGNORECASE,
 )
 
+# R27 — match SPUR / HELICAL as whole words (not substrings of e.g.
+# "SPURIOUS") when checking title/helix consistency.
+_SPUR_RE = re.compile(r"\bSPUR\b", re.IGNORECASE)
+_HELICAL_RE = re.compile(r"\bHELICAL\b", re.IGNORECASE)
+
+# Layers that hold title-block text (scoped scan target for step 5).
+_TITLE_LAYERS = {"TITLE", "TITLEBLOCK"}
+
 
 @dataclass
 class ValidationFinding:
@@ -141,38 +149,54 @@ class DrawingValidator:
                     "bore_missing",
                     "Expected bore but no circle on GEOMETRY layer found",
                 ))
+            # draw_keyed_bore emits the keyway notch as an OPEN 4-point polyline
+            # on GEOMETRY — requiring `closed` here made this a permanent
+            # false-negative. Match a small (3-6 point) polyline, open or closed.
             keyway_polys = [
                 e for e in ents
                 if e.type in ("LWPOLYLINE", "POLYLINE")
                 and e.layer == "GEOMETRY"
-                and len(e.properties.get("points", [])) <= 6
-                and e.properties.get("closed")
+                and 3 <= len(e.properties.get("points", [])) <= 6
             ]
             if expected.get("must_have_keyway") and len(keyway_polys) < 1:
                 findings.append(ValidationFinding(
                     "warning",
                     "keyway_section_unverified",
-                    "Could not confirm keyway in section view via heuristic "
-                    "(small closed polyline on GEOMETRY)",
+                    "Could not confirm keyway via heuristic "
+                    "(small 3-6 point polyline on GEOMETRY)",
                 ))
 
         # 5 — title consistency
         helix = expected.get("helix_angle")
         if helix:
-            title_texts = [
-                (e.properties.get("text", "") or "").upper()
+            # R27 — scope the scan to title-block text where possible (TITLE /
+            # TITLEBLOCK layer); fall back to all TEXT-layer text if no title
+            # layer carries any text.
+            title_block_texts = [
+                e.properties.get("text", "") or ""
                 for e in ents
-                if e.type in ("TEXT", "MTEXT") and e.layer == "TEXT"
+                if e.type in ("TEXT", "MTEXT") and e.layer in _TITLE_LAYERS
             ]
+            if title_block_texts:
+                title_texts = title_block_texts
+            else:
+                title_texts = [
+                    e.properties.get("text", "") or ""
+                    for e in ents
+                    if e.type in ("TEXT", "MTEXT") and e.layer == "TEXT"
+                ]
             joined = " | ".join(title_texts)
-            if "HELICAL SPUR" in joined:
+            # R27 — whole-word matching so "SPURIOUS" no longer trips SPUR.
+            has_spur = bool(_SPUR_RE.search(joined))
+            has_helical = bool(_HELICAL_RE.search(joined))
+            if has_spur and has_helical:
                 findings.append(ValidationFinding(
                     "error",
                     "title_helical_spur",
                     "Title contains 'HELICAL SPUR GEAR' — invalid; use "
                     "'HELICAL GEAR' or 'SPUR GEAR'",
                 ))
-            elif "SPUR" in joined and "HELICAL" not in joined:
+            elif has_spur:
                 findings.append(ValidationFinding(
                     "error",
                     "title_says_spur_for_helical",

@@ -201,7 +201,7 @@ class AutoCADBackend(ABC):
     @abstractmethod
     async def entity_create_mtext(
         self, text: str, x: float, y: float,
-        width: float = 100.0, height: float = 2.5,
+        width: float = 100.0, height: float = 2.5, rotation: float = 0.0,
         layer: str | None = None, color: int | None = None,
     ) -> EntityInfo: ...
 
@@ -545,7 +545,10 @@ class AutoCADBackend(ABC):
         notes: list[str] | None = None,
     ) -> PlanSpec:
         """Commit a drawing intent before any geometry is created.
-        Returns a PlanSpec held on the backend for `drawing_critique`."""
+        Returns a PlanSpec and stores it on the backend; read it back with
+        `get_plan_spec()`. (N8: the previous claim that `drawing_critique`
+        replays this plan was untrue — critique runs geometric checks, not a
+        plan diff.)"""
         from engineering.plan_spec import PlanSpec
         plan = PlanSpec(
             intent=str(intent),
@@ -562,10 +565,18 @@ class AutoCADBackend(ABC):
     async def drawing_critique(
         self, focus: list[CritiqueFocus] | None = None,
     ) -> list[Issue]:
-        """Run premium-quality checks; return zero issues before
-        `drawing_finalize`. `focus=None` runs all checks."""
+        """Run premium-quality geometric checks; return zero issues before
+        `drawing_finalize`. `focus=None` runs all checks. (N8: this does NOT
+        replay the committed PlanSpec — it inspects the live drawing geometry.)"""
         from engineering.critique import run_critique
         return await run_critique(self, focus)
+
+    def get_plan_spec(self) -> dict | None:
+        """Return the PlanSpec committed by `drawing_plan` as a dict, or None
+        if no plan has been committed. (N8: makes the stored `_plan_spec`
+        actually readable instead of being write-only dead state.)"""
+        plan = getattr(self, "_plan_spec", None)
+        return plan.to_dict() if plan is not None else None
 
     async def point_from_snap(
         self, handle: str, snap: SnapType,
@@ -601,6 +612,19 @@ class AutoCADBackend(ABC):
                 )
             return float(c[0]), float(c[1]), float(r)
 
+        def _arc_angles():
+            # N7: use .get() + descriptive RuntimeError (matching _line_pts /
+            # _circle_geom) instead of bracket indexing that raises an opaque
+            # KeyError when start_angle/end_angle are missing.
+            sa = p.get("start_angle")
+            ea = p.get("end_angle")
+            if sa is None or ea is None:
+                raise RuntimeError(
+                    f"point_from_snap: entity {handle} ({et}) has no "
+                    "start_angle/end_angle."
+                )
+            return math.radians(float(sa)), math.radians(float(ea))
+
         if snap == "end":
             if et == "LINE":
                 s, e = _line_pts()
@@ -611,8 +635,7 @@ class AutoCADBackend(ABC):
                 return s if ds <= de else e
             if et == "ARC":
                 cx, cy, r = _circle_geom()
-                sa = math.radians(float(p["start_angle"]))
-                ea = math.radians(float(p["end_angle"]))
+                sa, ea = _arc_angles()
                 sp = (cx + r * math.cos(sa), cy + r * math.sin(sa))
                 ep = (cx + r * math.cos(ea), cy + r * math.sin(ea))
                 if ref is None:
@@ -628,8 +651,7 @@ class AutoCADBackend(ABC):
                 return ((s[0] + e[0]) / 2.0, (s[1] + e[1]) / 2.0)
             if et == "ARC":
                 cx, cy, r = _circle_geom()
-                sa = math.radians(float(p["start_angle"]))
-                ea = math.radians(float(p["end_angle"]))
+                sa, ea = _arc_angles()
                 if ea < sa:
                     ea += 2 * math.pi
                 ma = (sa + ea) / 2.0
@@ -646,10 +668,46 @@ class AutoCADBackend(ABC):
                 return (float(c[0]), float(c[1]))
             raise RuntimeError(f"point_from_snap: 'center' snap not supported on {et}")
 
+        # NEW-snap-quad-arc / NEW-snap-near-arc: an ARC only covers part of the
+        # full circle, so quad/near candidates derived from the circle may fall
+        # outside the [start_angle, end_angle] sweep. Restrict (quad) / clamp
+        # (near) the projected angle to the sweep, with 2π wraparound.
+        def _arc_sweep():
+            sa, ea = _arc_angles()
+            if ea < sa:
+                ea += 2 * math.pi
+            return sa, ea
+
+        def _angle_in_sweep(theta: float, sa: float, ea: float) -> bool:
+            # Normalise theta into [sa, sa+2π) and test against [sa, ea].
+            t = sa + ((theta - sa) % (2 * math.pi))
+            return t <= ea + 1e-9
+
+        def _arc_endpoints(cx: float, cy: float, r: float, sa: float, ea: float):
+            return (
+                (cx + r * math.cos(sa), cy + r * math.sin(sa)),
+                (cx + r * math.cos(ea), cy + r * math.sin(ea)),
+            )
+
         if snap == "quad":
-            if et in ("CIRCLE", "ARC"):
+            if et == "CIRCLE":
                 cx, cy, r = _circle_geom()
                 pts = [(cx + r, cy), (cx, cy + r), (cx - r, cy), (cx, cy - r)]
+                if ref is None:
+                    return pts[0]
+                return min(pts, key=lambda q: (q[0] - ref[0]) ** 2 + (q[1] - ref[1]) ** 2)
+            if et == "ARC":
+                cx, cy, r = _circle_geom()
+                sa, ea = _arc_sweep()
+                quad_angles = (0.0, math.pi / 2.0, math.pi, 3 * math.pi / 2.0)
+                pts = [
+                    (cx + r * math.cos(a), cy + r * math.sin(a))
+                    for a in quad_angles
+                    if _angle_in_sweep(a, sa, ea)
+                ]
+                if not pts:
+                    # No quadrant lies on the sweep — fall back to arc endpoints.
+                    pts = list(_arc_endpoints(cx, cy, r, sa, ea))
                 if ref is None:
                     return pts[0]
                 return min(pts, key=lambda q: (q[0] - ref[0]) ** 2 + (q[1] - ref[1]) ** 2)
@@ -682,13 +740,29 @@ class AutoCADBackend(ABC):
                 t = ((ref[0] - s[0]) * dx + (ref[1] - s[1]) * dy) / L2
                 t = max(0.0, min(1.0, t))
                 return (s[0] + t * dx, s[1] + t * dy)
-            if et in ("CIRCLE", "ARC"):
+            if et == "CIRCLE":
                 cx, cy, r = _circle_geom()
                 vx, vy = ref[0] - cx, ref[1] - cy
                 L = math.hypot(vx, vy)
                 if L < 1e-18:
                     return (cx + r, cy)
                 return (cx + r * vx / L, cy + r * vy / L)
+            if et == "ARC":
+                cx, cy, r = _circle_geom()
+                sa, ea = _arc_sweep()
+                vx, vy = ref[0] - cx, ref[1] - cy
+                L = math.hypot(vx, vy)
+                if L < 1e-18:
+                    # Degenerate ref at center: return the start endpoint.
+                    return (cx + r * math.cos(sa), cy + r * math.sin(sa))
+                theta = math.atan2(vy, vx)
+                if _angle_in_sweep(theta, sa, ea):
+                    return (cx + r * math.cos(theta), cy + r * math.sin(theta))
+                # Projected angle is off the sweep — fall back to the nearer endpoint.
+                sp, ep = _arc_endpoints(cx, cy, r, sa, ea)
+                ds = (sp[0] - ref[0]) ** 2 + (sp[1] - ref[1]) ** 2
+                de = (ep[0] - ref[0]) ** 2 + (ep[1] - ref[1]) ** 2
+                return sp if ds <= de else ep
             raise RuntimeError(f"point_from_snap: 'near' snap not supported on {et}")
 
         if snap == "int":
@@ -831,7 +905,13 @@ class AutoCADBackend(ABC):
         # Solving cos(θ - α) = -r/d where α = atan2(C-F) gives the two
         # circle angles θ at which the tangent touches the perimeter.
         alpha = math.atan2(dy, dx)          # direction from F to C
-        acos_neg = math.acos(-r / d)        # in (π/2, π) for external point
+        # NEW-base-1: clamp the acos argument to [-1, 1] so a from-point in the
+        # narrow band [r-1e-9, r) (past the internal-point guard but with
+        # |-r/d| marginally > 1 from float error) degenerates gracefully to the
+        # tangent-at-perimeter case instead of raising a raw ValueError
+        # ("math domain error"). Genuine internal points (d < r) are already
+        # rejected by the RuntimeError guard above.
+        acos_neg = math.acos(max(-1.0, min(1.0, -r / d)))  # (π/2, π] for external pt
         candidates: list[tuple[float, float]] = [
             (cx + r * math.cos(alpha + acos_neg), cy + r * math.sin(alpha + acos_neg)),
             (cx + r * math.cos(alpha - acos_neg), cy + r * math.sin(alpha - acos_neg)),
@@ -864,12 +944,31 @@ class AutoCADBackend(ABC):
             except Exception:
                 pass  # already created / racy create — harmless
 
+    def _active_layer_set_id(self) -> str:
+        """Best-effort active layer set: an explicit `drawing_apply_iso_layers`
+        wins, else the committed PlanSpec, else 'mech' (the default bootstrap)."""
+        explicit = getattr(self, "_active_layer_set", None)
+        if explicit:
+            return explicit
+        plan = getattr(self, "_plan_spec", None)
+        if plan is not None:
+            return getattr(plan, "layer_set_id", "mech")
+        return "mech"
+
+    def _role_layer(self, role: str) -> str:
+        """Resolve the layer name for a role ('dim' | 'construction') in the
+        active layer set, so dims/scaffolding land on the right layer for
+        iso13567 (M-DIMEN-T-N / M-CONST-E-N) not just mech/pid (DIM/CONSTRUCTION)."""
+        from engineering.layers import resolve_role_layer
+        return resolve_role_layer(self._active_layer_set_id(), role)
+
     async def construction_xline(
         self, x: float, y: float, angle_deg: float,
-        layer: str = "CONSTRUCTION",
+        layer: str | None = None,
     ) -> EntityInfo:
-        """Create an infinite construction line (XLINE) on a CONSTRUCTION
-        layer (auto-created with color 250 = lightest if missing)."""
+        """Create an infinite construction line (XLINE) on the active layer set's
+        construction layer (auto-created with color 250 = lightest if missing)."""
+        layer = layer or self._role_layer("construction")
         await self._ensure_layer(layer, color=250)
         ang = math.radians(float(angle_deg))
         return await self._create_xline(
@@ -877,10 +976,11 @@ class AutoCADBackend(ABC):
         )
 
     async def construction_clear(
-        self, layer: str = "CONSTRUCTION",
+        self, layer: str | None = None,
     ) -> dict:
-        """Delete every entity on the CONSTRUCTION layer.
+        """Delete every entity on the active layer set's construction layer.
         Must be called before `drawing_finalize`."""
+        layer = layer or self._role_layer("construction")
         try:
             ents = await self.entity_list(layer_filter=layer, limit=5000)
         except Exception:
@@ -901,17 +1001,20 @@ class AutoCADBackend(ABC):
         and lineweights. Idempotent."""
         from engineering.layers import apply_layer_set
         result = await apply_layer_set(self, standard)
+        self._active_layer_set = standard
         return {"ok": True, "standard": standard, "layers": result}
 
     async def dimension_auto(
         self, handles: list[str], style: DimStyle = "chain",
-        offset: float = 10.0,
+        offset: float = 10.0, layer: str | None = None,
     ) -> list[EntityInfo]:
         """Generate ISO 129 dimensions across `handles` in the chosen style
         (chain | baseline | ordinate). `offset` is the dimension-line
-        distance from the reference geometry (mm)."""
+        distance from the reference geometry (mm). `layer` defaults to the
+        active layer set's dimension layer (DIM, or M-DIMEN-T-N for iso13567)."""
         if not handles:
             return []
+        dim_layer = layer or self._role_layer("dim")
         if style not in ("chain", "baseline", "ordinate"):
             raise RuntimeError(
                 f"dimension_auto: unknown style '{style}'. "
@@ -945,7 +1048,7 @@ class AutoCADBackend(ABC):
                 nx, ny = -dy / L, dx / L
                 dim = await self.dimension_linear(
                     sx, sy, ex, ey, mx + nx * off, my + ny * off,
-                    rotation=math.degrees(math.atan2(dy, dx)), layer="DIM",
+                    rotation=math.degrees(math.atan2(dy, dx)), layer=dim_layer,
                 )
                 results.append(dim)
 
@@ -954,27 +1057,31 @@ class AutoCADBackend(ABC):
             dx, dy = ex0 - sx0, ey0 - sy0
             L0 = math.hypot(dx, dy) or 1.0
             ux, uy = dx / L0, dy / L0
+            base_rot = math.degrees(math.atan2(dy, dx))
             for i, (_sx, _sy, ex, ey) in enumerate(segs):
                 dim = await self.dimension_linear(
                     sx0, sy0, ex, ey,
                     sx0 - uy * (off + i * off), sy0 + ux * (off + i * off),
-                    layer="DIM",
+                    # Dimension line must run parallel to the (possibly rotated)
+                    # baseline, not horizontal.
+                    rotation=base_rot, layer=dim_layer,
                 )
                 results.append(dim)
 
-        else:  # ordinate — X then Y distance of each segment's end from start
-            for sx, sy, ex, ey in segs:
+        else:  # ordinate — stacked X/Y distances; each feature offset so dims don't overlap
+            for i, (sx, sy, ex, ey) in enumerate(segs):
+                rung = off + i * off  # stagger per feature to avoid coincident dims
                 if abs(ex - sx) > 1e-9:
                     dim = await self.dimension_linear(
                         sx, sy, ex, sy,
-                        sx + (ex - sx) / 2.0, max(sy, ey) + off, layer="DIM",
+                        sx + (ex - sx) / 2.0, max(sy, ey) + rung, layer=dim_layer,
                     )
                     results.append(dim)
                 if abs(ey - sy) > 1e-9:
                     dim = await self.dimension_linear(
                         ex, sy, ex, ey,
-                        max(sx, ex) + off, (sy + ey) / 2.0,
-                        rotation=90.0, layer="DIM",
+                        max(sx, ex) + rung, (sy + ey) / 2.0,
+                        rotation=90.0, layer=dim_layer,
                     )
                     results.append(dim)
 

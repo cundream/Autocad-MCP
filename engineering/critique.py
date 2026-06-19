@@ -94,22 +94,29 @@ async def _check_layer_color(backend: AutoCADBackend) -> list[Issue]:
 
 
 async def _check_construction_left(backend: AutoCADBackend) -> list[Issue]:
-    """CONSTRUCTION layer must be empty before drawing_finalize."""
+    """No construction/scratch geometry may remain before drawing_finalize.
+
+    Matches any layer whose name contains 'CONST' (CONSTRUCTION, M-CONST-E-N, …)
+    so the check is independent of the active layer set — a leftover iso13567
+    scaffold on M-CONST-E-N is caught just like a mech one on CONSTRUCTION.
+    """
     try:
-        ents = await backend.entity_list(layer_filter="CONSTRUCTION", limit=5000)
+        ents = await backend.entity_list(limit=5000)
     except Exception:
         return []
-    if not ents:
+    leftover = [e for e in ents if "CONST" in (e.layer or "").upper()]
+    if not leftover:
         return []
     return [Issue(
         severity="error",
         focus="construction_left",
         message=(
-            f"{len(ents)} entity/entities still on CONSTRUCTION layer. "
+            f"{len(leftover)} entity/entities still on a construction layer. "
             "Call construction_clear() before drawing_finalize."
         ),
-        handles=[e.handle for e in ents[:50]],
-        detail={"count": len(ents)},
+        handles=[e.handle for e in leftover[:50]],
+        detail={"count": len(leftover),
+                "layers": sorted({e.layer for e in leftover if e.layer})},
     )]
 
 
@@ -185,22 +192,46 @@ async def _check_duplicate_entities(backend: AutoCADBackend) -> list[Issue]:
     return issues
 
 
+def _dim_ref_point(e) -> tuple[float, float] | None:
+    """Best-effort reference point for a dimension entity, tolerant of the
+    per-backend property shape: explicit text/def points first, then the
+    bounding-box centre (COM seeds `bounding_box` for every entity)."""
+    for key in ("text_position", "defpoint", "insertion_point", "insertion"):
+        ip = e.properties.get(key)
+        if ip and len(ip) >= 2:
+            return (float(ip[0]), float(ip[1]))
+    bb = e.properties.get("bounding_box")
+    try:
+        if isinstance(bb, dict):
+            mn, mx = bb.get("min"), bb.get("max")
+            return ((mn[0] + mx[0]) / 2.0, (mn[1] + mx[1]) / 2.0)
+        if bb and len(bb) == 2 and hasattr(bb[0], "__len__"):
+            return ((bb[0][0] + bb[1][0]) / 2.0, (bb[0][1] + bb[1][1]) / 2.0)
+        if bb and len(bb) >= 4:
+            return ((bb[0] + bb[2]) / 2.0, (bb[1] + bb[3]) / 2.0)
+    except (TypeError, IndexError, KeyError):
+        return None
+    return None
+
+
 async def _check_dim_overlap(backend: AutoCADBackend) -> list[Issue]:
-    """Two dimensions whose insertion points are within `tol` likely overlap."""
+    """Two dimensions whose reference points are within `tol` likely overlap.
+
+    Filters by entity TYPE (not layer) so dims land-anywhere — including the
+    iso13567 M-DIMEN-T-N layer — are still considered.
+    """
     tol = 5.0  # mm
     try:
-        ents = await backend.entity_list(layer_filter="DIM", limit=5000)
+        ents = await backend.entity_list(limit=5000)
     except Exception:
         return []
     dim_points: list[tuple[str, tuple[float, float]]] = []
     for e in ents:
         if e.type not in _DIM_TYPES and "DIM" not in e.type:
             continue
-        ip = (e.properties.get("text_position")
-              or e.properties.get("defpoint")
-              or e.properties.get("insertion_point"))
-        if ip and len(ip) >= 2:
-            dim_points.append((e.handle, (float(ip[0]), float(ip[1]))))
+        ip = _dim_ref_point(e)
+        if ip is not None:
+            dim_points.append((e.handle, ip))
     issues: list[Issue] = []
     seen: set[frozenset[str]] = set()
     for i, (h1, p1) in enumerate(dim_points):

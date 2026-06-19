@@ -229,3 +229,46 @@ class TestSanitizeLisp:
 
         monkeypatch.delenv("DANGEROUS_COMMANDS_ENABLED", raising=False)
         config.settings = Settings()
+
+
+class TestSanitizerBypassVectors:
+    """R8 — adversarial coverage: the deny-list must hold against common evasion
+    tricks. Each asserts the guard REJECTS the payload (defensive verification),
+    plus that legitimate input is NOT over-blocked."""
+
+    def test_command_newline_injected_second_command(self):
+        # A safe head command with a dangerous one smuggled after a newline.
+        with pytest.raises(ToolError, match="restricted command"):
+            sanitize_command("_ZOOM E\n_ERASE")
+
+    def test_command_case_insensitive(self):
+        with pytest.raises(ToolError, match="restricted command"):
+            sanitize_command("eRaSe all")
+
+    def test_command_legitimate_not_overblocked(self):
+        assert sanitize_command("_LINE 0,0 10,10") == "_LINE 0,0 10,10"
+
+    def test_lisp_symbol_aliasing_blocked(self):
+        # (setq f command) references `command` as a value to dodge head-only
+        # matching — the bare-token scan must still catch it.
+        with pytest.raises(ToolError, match="restricted function"):
+            sanitize_lisp("(setq f command)(f)")
+
+    def test_lisp_activex_family_blocked(self):
+        with pytest.raises(ToolError, match="restricted function"):
+            sanitize_lisp('(vlax-invoke obj "SendCommand" "x")')
+
+    def test_lisp_express_tools_shell_blocked(self):
+        with pytest.raises(ToolError, match="restricted function"):
+            sanitize_lisp('(acet-sys-shell "cmd")')
+
+    def test_lisp_custom_command_invocation_blocked(self):
+        with pytest.raises(ToolError, match="restricted function"):
+            sanitize_lisp("(c:mycmd)")
+
+    def test_lisp_dangerous_token_inside_wrapper_blocked(self):
+        with pytest.raises(ToolError, match="restricted function"):
+            sanitize_lisp('(startapp (strcat "c" "md"))')
+
+    def test_lisp_legitimate_not_overblocked(self):
+        assert sanitize_lisp("(setq x (* 2 3))") == "(setq x (* 2 3))"

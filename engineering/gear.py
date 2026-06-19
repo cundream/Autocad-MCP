@@ -33,19 +33,36 @@ def generate_involute_flank(
     outer_r: float,
     n_points: int = 40,
 ) -> list[tuple[float, float]]:
-    """One tooth flank from root through base circle out to addendum tip."""
+    """One tooth flank from the root circle out to the addendum tip.
+
+    The first returned point ALWAYS sits exactly on the root circle (radius
+    `root_r`) so the caller's root arc connects seamlessly:
+
+    * root_r < base_r  — the involute is undefined below the base circle, so the
+      flank runs radially from the root circle up to (base_r, 0) and then follows
+      the involute outward (a straight radial fillet approximation).
+    * root_r >= base_r — (high tooth counts, z>=~42 @20deg) the active profile
+      starts where the involute crosses the root circle; sampling begins at that
+      parameter so the flank never dips inside the root circle (which previously
+      produced a self-overlapping outline).
+    """
     if n_points < 30:
         n_points = 30
     points: list[tuple[float, float]] = []
-    if root_r < base_r:
-        points.append((root_r, 0.0))
     ratio = outer_r / base_r if base_r > 0 else 1.0
     if ratio <= 1.0:
-        points.append((base_r, 0.0))
-        return points
+        # Degenerate (outer circle at/below the base circle) — unreachable for
+        # real gears (outer_r = pitch_r + module > base_r). Anchor at the root.
+        return [(max(base_r, root_r), 0.0)]
     t_max = math.sqrt(ratio * ratio - 1.0)
+    if root_r > base_r:
+        # Involute radius r(t) = base_r * sqrt(1 + t^2); solve r(t)=root_r.
+        t_min = math.sqrt((root_r / base_r) ** 2 - 1.0)
+    else:
+        t_min = 0.0
+        points.append((root_r, 0.0))  # radial fillet up to the base circle
     for i in range(n_points):
-        t = t_max * i / (n_points - 1)
+        t = t_min + (t_max - t_min) * i / (n_points - 1)
         points.append(involute_xy(base_r, t))
     return points
 
@@ -208,7 +225,10 @@ async def draw_helical_gear_front_view(
 
     outer_circ = await backend.entity_create_circle(cx, cy, outer_r, layer="GEOMETRY")
     pitch_circ = await backend.entity_create_circle(cx, cy, pitch_r, layer="CENTER")
-    base_circ = await backend.entity_create_circle(cx, cy, base_r, layer="CONSTRUCTION")
+    # Base circle is a persistent involute reference on PHANTOM — NOT CONSTRUCTION,
+    # which the mandated construction_clear() before finalize would delete, leaving
+    # the returned base_circle handle dangling.
+    base_circ = await backend.entity_create_circle(cx, cy, base_r, layer="PHANTOM")
     root_circ = await backend.entity_create_circle(cx, cy, root_r, layer="GEOMETRY")
 
     pts = generate_full_gear_outline(
@@ -350,15 +370,10 @@ async def draw_gear_section_aa(
     keyway_dict: dict | None = None
     if bore_d is not None:
         bore_r = float(bore_d) / 2.0
-        bore_top = await backend.entity_create_line(
-            x_left, cy + bore_r, x_right, cy + bore_r, layer="GEOMETRY",
-        )
-        bore_bot = await backend.entity_create_line(
-            x_left, cy - bore_r, x_right, cy - bore_r, layer="GEOMETRY",
-        )
-        bore_handles = [bore_top.handle, bore_bot.handle]
-
         if keyway_w is not None or keyway_h is not None:
+            # draw_keyway_section draws BOTH bore lines (same span/y) AND the
+            # notch — drawing the bore lines here too would duplicate them and
+            # trip the duplicate_entities critique. Let it own the bore lines.
             keyway_dict = await draw_keyway_section(
                 backend,
                 center=(section_cx, cy),
@@ -367,6 +382,15 @@ async def draw_gear_section_aa(
                 keyway_width=keyway_w,
                 keyway_depth=keyway_h,
             )
+            bore_handles = [keyway_dict["bore_top"], keyway_dict["bore_bottom"]]
+        else:
+            bore_top = await backend.entity_create_line(
+                x_left, cy + bore_r, x_right, cy + bore_r, layer="GEOMETRY",
+            )
+            bore_bot = await backend.entity_create_line(
+                x_left, cy - bore_r, x_right, cy - bore_r, layer="GEOMETRY",
+            )
+            bore_handles = [bore_top.handle, bore_bot.handle]
 
     return {
         "top": top.handle,

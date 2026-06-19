@@ -39,6 +39,10 @@ NL_TABLE: list[tuple[Any, Any]] = [
     (50, 50),
     (100, 100),
     (200, 200),
+    # Ambiguous bare ints (<= 2.05) — the P0 truncation hazard: treated as mm,
+    # NOT as hundredths (NEW-test-com-1). 2 -> 2.00mm -> 200, 1 -> 1.00mm -> 100.
+    (1, 100),
+    (2, 200),
     # Sentinels: -1 = ByLayer, -2 = ByBlock, -3 = Default
     (-1, -1),
     (-2, -2),

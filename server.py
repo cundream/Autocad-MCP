@@ -241,16 +241,111 @@ def _dc(obj) -> dict:
     return obj
 
 
-def _registered_tool_count() -> int:
-    """Number of @mcp.tool registrations currently on the server.
+async def _registered_tools() -> list:
+    """Return the FunctionTool objects currently registered on the server.
 
-    Used by system_status / system_about so the count never drifts from reality.
+    R20: prefer the public FastMCP 3.0.1 accessor (``mcp._list_tools()``,
+    also exposed as ``mcp.list_tools()``) which returns a ``Sequence[Tool]``.
+    Only fall back to the private ``_local_provider._components`` registry if
+    the public path is unavailable. Never raises; returns [] when unknown so
+    callers can label/omit rather than surface a bogus count.
     """
     try:
+        tools = await mcp._list_tools()
+        return list(tools)
+    except Exception as exc:  # pragma: no cover - public path is the norm
+        log.debug("public _list_tools() failed, falling back: %s", exc)
+    try:
         components = mcp._local_provider._components
-        return sum(1 for k in components if k.startswith("tool:"))
-    except Exception:
-        return -1
+        return [v for k, v in components.items() if k.startswith("tool:")]
+    except Exception as exc:
+        log.debug("private tool registry unavailable: %s", exc)
+        return []
+
+
+async def _registered_tool_count() -> int | None:
+    """Number of @mcp.tool registrations currently on the server.
+
+    R20: backed by the public accessor (see ``_registered_tools``). Returns
+    ``None`` (never -1) when the count is genuinely unknown so system_status /
+    system_about can omit/label it rather than report a fake value.
+    """
+    tools = await _registered_tools()
+    return len(tools) if tools else None
+
+
+# Priority order used to bucket each registered tool into exactly one group
+# for the system_about breakdown (R15). The first matching tag wins, so more
+# specific tags (engineering/premium/corner) take precedence over the broad
+# entity/drawing tags. Tools whose tags match none fall into "other".
+_GROUP_TAG_PRIORITY = (
+    "engineering",
+    "premium",
+    "corner",
+    "batch",
+    "template",
+    "dimension",
+    "transaction",
+    "view",
+    "validation",
+    "analysis",
+    "block",
+    "layer",
+    "linetype",
+    "create",
+    "modify",
+    "query",
+    "drawing",
+    "system",
+)
+
+# Map the winning tag to a human-readable group label for the breakdown.
+_GROUP_TAG_LABELS = {
+    "engineering": "engineering",
+    "premium": "premium",
+    "corner": "corner_ops",
+    "batch": "batch",
+    "template": "templates",
+    "dimension": "dimensions",
+    "transaction": "transactions",
+    "view": "view",
+    "analysis": "analysis",
+    "validation": "validation",
+    "block": "blocks",
+    "layer": "layers",
+    "linetype": "layers",
+    "create": "entity_creation",
+    "modify": "entity_modification",
+    "query": "entity_query",
+    "drawing": "drawing",
+    "system": "system",
+}
+
+
+async def _tool_groups() -> dict:
+    """Derive the system_about per-group tool breakdown dynamically from each
+    registered tool's tags (R15).
+
+    Replaces the hand-maintained static dict that omitted ~22 tools (all
+    engineering/premium/corner-ops + drawing_close) and misfiled
+    entity_delete_many under entity_creation. Because this reads the live
+    ``tags={...}`` on each @mcp.tool, the breakdown can never drift again.
+    """
+    groups: dict[str, list[str]] = {}
+    for tool in await _registered_tools():
+        name = getattr(tool, "name", None)
+        if not name:
+            continue
+        tags = getattr(tool, "tags", None) or set()
+        label = "other"
+        for tag in _GROUP_TAG_PRIORITY:
+            if tag in tags:
+                label = _GROUP_TAG_LABELS[tag]
+                break
+        groups.setdefault(label, []).append(name)
+    for names in groups.values():
+        names.sort()
+    return dict(sorted(groups.items()))
 
 
 # ---------------------------------------------------------------------------
@@ -353,13 +448,22 @@ async def drawing_save(
 )
 async def drawing_save_as(
     path: Annotated[str, "Full destination path including extension"],
-    format: Annotated[str, "Output format: dwg, dxf, dwt"] = "dwg",
+    format: Annotated[str, "Output format override: dwg, dxf, dwt. Default: derive "
+                           "from the path extension (the extension is authoritative)."] = "",
     ctx: Context = None,
 ) -> dict:
-    """Save current drawing to a new path/format (DWG, DXF, or DWT template)."""
+    """Save current drawing to a new path/format (DWG, DXF, or DWT template).
+
+    The on-disk format is derived from the file extension so the bytes always
+    match the name (N2) — e.g. 'part.dxf' writes DXF, not DWG. `format` overrides
+    only when the path has no recognised extension.
+    """
     validated = validate_path(path, allow_write=True)
-    await ctx.info(f"Saving as {format}: {validated}")
-    return await _backend(ctx).drawing_save_as(str(validated), format)
+    from pathlib import Path as _P
+    ext = _P(str(validated)).suffix.lstrip(".").lower()
+    fmt = ext if ext in ("dxf", "dwg", "dwt") else (format.lower() or "dxf")
+    await ctx.info(f"Saving as {fmt}: {validated}")
+    return await _backend(ctx).drawing_save_as(str(validated), fmt)
 
 
 @mcp.tool(
@@ -583,13 +687,14 @@ async def entity_create_mtext(
     y: Annotated[float, "Insertion point Y"],
     width: Annotated[float, "Text box width in drawing units"] = 100.0,
     height: Annotated[float, "Character height in drawing units"] = 2.5,
+    rotation: Annotated[float, "Rotation in degrees, CCW from +X"] = 0.0,
     layer: Annotated[str | None, "Layer name"] = None,
     color: Annotated[int | None, "ACI color code"] = None,
     ctx: Context = None,
 ) -> dict:
     """Create a multi-line text entity (MTEXT) with word-wrap at the specified width."""
     await ctx.debug(f"Creating mtext at ({x},{y}) w={width}")
-    result = await _backend(ctx).entity_create_mtext(text, x, y, width, height, layer, color)
+    result = await _backend(ctx).entity_create_mtext(text, x, y, width, height, rotation, layer, color)
     return _dc(result)
 
 
@@ -1986,21 +2091,26 @@ async def system_status(ctx: Context = None) -> dict:
     Returns backend name, connection status, capabilities, document info.
     """
     b = ctx.lifespan_context.get("backend")
-    tool_count = _registered_tool_count()
+    # R20: tool_count may be None when the registry is unavailable; omit the
+    # key rather than surface a bogus value (e.g. the old -1).
+    tool_count = await _registered_tool_count()
     unsafe = config.settings.dangerous_commands_enabled
     if b is None:
-        return {
+        out = {
             "server": "AutoCAD MCP Pro",
             "backend": "none",
             "connected": False,
-            "tool_count": tool_count,
             "unsafe_mode": unsafe,
             "error": ctx.lifespan_context.get("init_error"),
             "hint": "Set AUTOCAD_MCP_BACKEND=ezdxf to use headless mode, or start AutoCAD for COM mode.",
         }
+        if tool_count is not None:
+            out["tool_count"] = tool_count
+        return out
     status = await b.system_status()
     status["server"] = "AutoCAD MCP Pro"
-    status["tool_count"] = tool_count
+    if tool_count is not None:
+        status["tool_count"] = tool_count
     status["unsafe_mode"] = unsafe
     if unsafe:
         status["unsafe_mode_warning"] = (
@@ -2082,51 +2192,23 @@ async def system_about(ctx: Context = None) -> dict:
     """Get detailed information about AutoCAD MCP Pro capabilities and available tools."""
     b = ctx.lifespan_context.get("backend")
     backend_name = b.name if b else "none"
-    return {
+    # R15: derive the per-group breakdown dynamically from each tool's tags so
+    # it can never drift from the registered surface (the old hand-maintained
+    # dict omitted all engineering/premium/corner-ops tools + drawing_close and
+    # misfiled entity_delete_many under entity_creation).
+    tool_count = await _registered_tool_count()
+    out = {
         "name": "AutoCAD MCP Pro",
         "version": "1.0.0",
         "description": "Production-grade AutoCAD MCP server with dual COM+ezdxf engine",
         "active_backend": backend_name,
-        "tool_groups": {
-            "drawing": ["drawing_info", "drawing_new", "drawing_open", "drawing_save",
-                        "drawing_save_as", "drawing_export_dxf", "drawing_export_pdf",
-                        "drawing_purge", "drawing_audit", "drawing_undo", "drawing_redo"],
-            "entity_creation": ["entity_create_line", "entity_create_circle", "entity_create_arc",
-                                "entity_create_polyline", "entity_create_rectangle",
-                                "entity_create_text", "entity_create_mtext", "entity_create_hatch",
-                                "entity_create_spline", "entity_create_ellipse",
-                                "entity_create_point", "entity_create_block_ref",
-                                "entity_delete_many"],
-            "dimensions": ["dimension_linear", "dimension_aligned", "dimension_angular",
-                           "dimension_radius", "dimension_diameter"],
-            "entity_modification": ["entity_move", "entity_copy", "entity_rotate", "entity_scale",
-                                    "entity_mirror", "entity_offset", "entity_delete",
-                                    "entity_array_rectangular", "entity_array_polar",
-                                    "entity_set_properties"],
-            "entity_query": ["entity_get", "entity_list"],
-            "batch": ["entity_batch_create", "entity_batch_modify"],
-            "templates": ["template_apply_layers", "template_list"],
-            "layers": ["layer_list", "layer_create", "layer_delete", "layer_set_current",
-                       "layer_modify", "layer_freeze", "layer_thaw", "layer_lock",
-                       "layer_unlock", "layer_hide", "layer_show", "layer_isolate",
-                       "linetype_list", "linetype_load"],
-            "blocks": ["block_list", "block_insert", "block_explode",
-                       "block_get_attributes", "block_set_attributes",
-                       "block_create_from_entities", "block_find_references"],
-            "analysis": ["analysis_entity_stats", "analysis_find_in_region",
-                         "analysis_measure_distance", "analysis_measure_area",
-                         "analysis_bounding_box", "analysis_select_by_layer",
-                         "analysis_select_by_type", "analysis_layer_stats"],
-            "validation": ["validation_check"],
-            "view": ["view_zoom_extents", "view_zoom_window", "view_screenshot",
-                     "view_zoom_and_screenshot"],
-            "transactions": ["transaction_begin", "transaction_commit", "transaction_rollback"],
-            "system": ["system_status", "system_get_variable", "system_set_variable",
-                       "system_run_command", "system_run_lisp", "system_about"],
-        },
-        "total_tools": _registered_tool_count(),
+        "tool_groups": await _tool_groups(),
         "unsafe_mode": config.settings.dangerous_commands_enabled,
     }
+    # R20: omit total_tools when unknown rather than reporting a fake -1.
+    if tool_count is not None:
+        out["total_tools"] = tool_count
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -2305,11 +2387,19 @@ async def drawing_finalize(
         description="If given, write PNG screenshot to this path.")] = None,
     expected: Annotated[dict | None, Field(default=None,
         description="Optional contract: {'part_type', 'helix_angle', 'must_have_bore', 'must_have_keyway'}")] = None,
+    strict_critique: Annotated[bool, Field(default=False,
+        description="If true, ANY critique issue (including warnings) fails the gate — the full "
+                    "premium discipline. Default false: only critique 'error' issues (e.g. leftover "
+                    "construction geometry) fail; warnings are surfaced in the payload.")] = False,
     ctx: Context = None,
 ) -> dict:
-    """8-step pre-completion validator: real dimensions, no hidden orphans, linetypes loaded,
-    bore+keyway in both views (if expected), title consistency, saved to disk, screenshot exported,
-    DWG path returned. Raises ToolError if any 'error' severity finding is present.
+    """Premium completion gate: runs BOTH the 8-step validator AND the premium critique focuses
+    (iso128, layer_color, dim_overlap, untrimmed_corner, duplicate_entities, construction_left),
+    then saves to disk, exports a screenshot, and returns the DWG path.
+
+    Raises ToolError if any validator 'error' finding is present, or if critique reports an
+    'error' (or, with strict_critique=True, any critique issue). Critique warnings are surfaced
+    under payload['critique'] without failing the gate by default.
     """
     from engineering import DrawingValidator
     backend = _backend(ctx)
@@ -2328,16 +2418,43 @@ async def drawing_finalize(
                 from pathlib import Path as _P
                 _P(str(validated_shot)).write_bytes(shot)
         except Exception as exc:
-            await ctx.warning(f"Screenshot export failed: {exc}")
+            if ctx is not None:
+                await ctx.warning(f"Screenshot export failed: {exc}")
 
     result = await DrawingValidator().run(backend, expected=expected or {})
     payload = result.to_dict()
+
+    # I15 — the premium critique focuses are part of the finalize gate, not merely advisory.
+    critique_issues = await backend.drawing_critique(focus=None)
+    crit_summary = {"error": 0, "warning": 0, "info": 0}
+    for issue in critique_issues:
+        crit_summary[issue.severity] = crit_summary.get(issue.severity, 0) + 1
+    payload["critique"] = [issue.to_dict() for issue in critique_issues]
+    payload["critique_summary"] = crit_summary
+
     info = await backend.drawing_info()
     payload["dwg_path"] = getattr(info, "full_path", "")
+
+    if ctx is not None:
+        for issue in critique_issues:
+            if issue.severity == "warning":
+                await ctx.warning(f"critique[{issue.focus}]: {issue.message}")
+
     if not result.ok:
         raise ToolError(
             f"drawing_finalize: validation failed with {result.summary['error']} error(s). "
             f"First: {result.findings[0].code}: {result.findings[0].message}"
+        )
+
+    gate_failures = [
+        i for i in critique_issues
+        if i.severity == "error" or (strict_critique and i.severity != "info")
+    ]
+    if gate_failures:
+        first = gate_failures[0]
+        raise ToolError(
+            f"drawing_finalize: critique gate failed with {len(gate_failures)} blocking issue(s). "
+            f"First: {first.focus}: {first.message}"
         )
     return payload
 
@@ -2370,9 +2487,9 @@ async def drawing_plan(
 ) -> dict:
     """Commit a PlanSpec before any geometry is created.
 
-    The PlanSpec is held by the backend and replayed by `drawing_critique`
-    at finalize time to verify the drawing matches the original intent.
-    Always call this FIRST in a premium workflow.
+    The PlanSpec is stored on the backend and surfaced for reference during
+    the workflow (it is not replayed as a critique). Always call this FIRST
+    in a premium workflow.
     """
     plan = await _backend(ctx).drawing_plan(
         intent, sheet_size, scale, layer_set_id, view_count, dim_style, notes,
@@ -2916,6 +3033,24 @@ def _validate_http_bind(host: str) -> None:
         "requests. Make sure your firewall and TLS termination are in order.",
         host,
     )
+
+
+# NEW-AUTH-1 — enforce the bind guard on EVERY launch path, not just __main__.
+# The documented `fastmcp run server.py:mcp --transport http` imports this module
+# and calls `mcp.run_async(...)` directly, bypassing the __main__ block. Both
+# `mcp.run()` (via anyio.run(self.run_async, ...)) and the CLI funnel through
+# run_async, so wrapping it on the instance closes the anonymous-remote-bind hole.
+_HTTP_TRANSPORTS = {"http", "sse", "streamable-http"}
+_orig_run_async = mcp.run_async
+
+
+async def _guarded_run_async(transport=None, *args, **kwargs):
+    if (transport in _HTTP_TRANSPORTS) or (kwargs.get("transport") in _HTTP_TRANSPORTS):
+        _validate_http_bind(kwargs.get("host", "127.0.0.1"))
+    return await _orig_run_async(transport, *args, **kwargs)
+
+
+mcp.run_async = _guarded_run_async
 
 
 if __name__ == "__main__":

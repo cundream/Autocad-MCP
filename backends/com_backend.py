@@ -72,6 +72,21 @@ def _com_init():
         pythoncom.CoInitialize()
 
 
+def _com_teardown():
+    """COM thread finalizer — drop the cached app and release the STA apartment.
+
+    Submitted to the executor (R5) so the CoInitialize done in _com_init is
+    paired with a CoUninitialize when the worker is torn down or a stuck
+    SendCommand eventually unblocks, instead of leaking the apartment forever.
+    """
+    _COM_STATE.pop("app", None)
+    if _COM_IMPORTS_OK:
+        try:
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass
+
+
 def _apoint(x: float, y: float, z: float = 0.0):
     """Create a VARIANT double-array point for AutoCAD COM."""
     return win32com.client.VARIANT(
@@ -220,6 +235,9 @@ def _entity_info(entity) -> EntityInfo:
             props["radius"] = entity.Radius
             props["start_angle"] = rad2deg(entity.StartAngle)
             props["end_angle"] = rad2deg(entity.EndAngle)
+            # Arc length (N3) — parity with ezdxf so length_range selects ARCs.
+            _sweep = (entity.EndAngle - entity.StartAngle) % (2.0 * math.pi)
+            props["length"] = entity.Radius * _sweep
         elif obj_name in ("AcDbLWPolyline", "AcDb2dPolyline"):
             coords = list(entity.Coordinates)
             pts = [[coords[i], coords[i+1]] for i in range(0, len(coords), 2)]
@@ -231,10 +249,14 @@ def _entity_info(entity) -> EntityInfo:
             ins = entity.InsertionPoint
             props["insertion"] = [ins[0], ins[1]]
             props["height"] = entity.Height
+            props["rotation"] = rad2deg(entity.Rotation)  # N5 parity with ezdxf
         elif obj_name == "AcDbMText":
             props["text"] = entity.Contents
             ins = entity.InsertionPoint
             props["insertion"] = [ins[0], ins[1]]
+            # N5 parity with ezdxf: MTEXT char_height + rotation.
+            props["char_height"] = entity.Height
+            props["rotation"] = rad2deg(entity.Rotation)
         elif obj_name == "AcDbBlockReference":
             ins = entity.InsertionPoint
             props["insertion"] = [ins[0], ins[1]]
@@ -285,6 +307,13 @@ def _find_autocad_hwnd() -> int | None:
     """Find the main AutoCAD window handle."""
     if not _WIN32_AVAILABLE:
         return None
+    # R28: prefer the COM application's real main-frame handle. The EnumWindows
+    # title-substring scan can match a palette / About dialog / Start tab, so it
+    # is only a fallback for when the HWND read fails.
+    try:
+        return int(_acad_app().HWND)
+    except Exception as exc:
+        log.debug("Application.HWND read failed, falling back to EnumWindows: %s", exc)
     result = {"hwnd": None}
 
     def _enum_cb(hwnd, _):
@@ -385,6 +414,10 @@ class ComBackend(AutoCADBackend):
 
     async def disconnect(self) -> None:
         if self._executor:
+            try:
+                self._executor.submit(_com_teardown)  # release COM apartment (R5)
+            except Exception:
+                pass
             self._executor.shutdown(wait=False)
             self._executor = None
         self._connected = False
@@ -422,6 +455,12 @@ class ComBackend(AutoCADBackend):
             stuck = self._executor
             self._executor = ThreadPoolExecutor(max_workers=1, initializer=_com_init)
             if stuck is not None:
+                # When the stuck SendCommand eventually unblocks, the queued
+                # teardown releases its COM apartment instead of leaking it (R5).
+                try:
+                    stuck.submit(_com_teardown)
+                except Exception:
+                    pass
                 stuck.shutdown(wait=False)
             _COM_STATE.pop("app", None)
             self._connected = False
@@ -637,12 +676,14 @@ class ComBackend(AutoCADBackend):
         return await self._run(_sync)
 
     async def entity_create_mtext(
-        self, text, x, y, width=100.0, height=2.5, layer=None, color=None,
+        self, text, x, y, width=100.0, height=2.5, rotation=0.0, layer=None, color=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
             mt = mspace.AddMText(_apoint(x, y), float(width), text)
             mt.Height = float(height)
+            if rotation:
+                mt.Rotation = deg2rad(rotation)  # NEW-mtext-1: honor caller rotation
             _apply_entity_attrs(mt, layer, color, None)
             _regen()
             return _entity_info(mt)
@@ -863,14 +904,49 @@ class ComBackend(AutoCADBackend):
         def _sync():
             doc = _acad_doc()
             ent = doc.HandleToObject(handle)
-            offset_ent = ent.Offset(float(distance))
-            # Offset returns a variant array of entities
-            try:
-                first = offset_ent[0]
-            except Exception as exc:
-                log.debug("Offset result indexing failed, using raw result: %s", exc)
-                first = offset_ent
-            return _entity_info(first)
+
+            def _as_list(res):
+                # Offset returns a variant array of entities (1 for line/arc/circle).
+                try:
+                    return [res[i] for i in range(len(res))]
+                except TypeError:
+                    return [res]
+
+            def _center(e):
+                bb_min, bb_max = e.GetBoundingBox()
+                return ((bb_min[0] + bb_max[0]) / 2.0, (bb_min[1] + bb_max[1]) / 2.0)
+
+            d = float(distance)
+            # R13: honor side_x/side_y so positive distance means the same side as
+            # ezdxf. Offset both ways, keep the copy nearest the side point, delete
+            # the rest (also fixes the orphan-extras leak, NEW-com-offset-orphan).
+            if side_x is not None and side_y is not None and abs(d) > 1e-12:
+                sx, sy = float(side_x), float(side_y)
+                pos = _as_list(ent.Offset(abs(d)))
+                neg = _as_list(ent.Offset(-abs(d)))
+
+                def _sq_dist(e):
+                    cx, cy = _center(e)
+                    return (cx - sx) ** 2 + (cy - sy) ** 2
+
+                if _sq_dist(pos[0]) <= _sq_dist(neg[0]):
+                    keep, drop = pos, neg
+                else:
+                    keep, drop = neg, pos
+                for extra in drop + keep[1:]:
+                    try:
+                        extra.Delete()
+                    except Exception:
+                        pass
+                return _entity_info(keep[0])
+
+            result = _as_list(ent.Offset(d))
+            for extra in result[1:]:
+                try:
+                    extra.Delete()
+                except Exception:
+                    pass
+            return _entity_info(result[0])
         return await self._run(_sync)
 
     async def entity_delete(self, handle) -> dict:
@@ -1178,12 +1254,18 @@ class ComBackend(AutoCADBackend):
                     1 for j in range(blk.Count)
                     if blk.Item(j).ObjectName == "AcDbAttributeDefinition"
                 )
+                # S3: populate description from the block definition's .Comments.
+                try:
+                    description = blk.Comments or ""
+                except Exception:
+                    description = ""
                 blocks.append(BlockInfo(
                     name=blk.Name,
                     origin=(blk.Origin[0], blk.Origin[1]),
                     attribute_count=attr_count,
                     entity_count=blk.Count,
                     is_xref=bool(blk.IsXRef),
+                    description=description,
                 ))
             return blocks
         return await self._run(_sync)
@@ -1403,19 +1485,25 @@ class ComBackend(AutoCADBackend):
             doc = _acad_doc()
             doc.EndUndoMark()
             return {"ok": True, "message": "Transaction committed"}
-        result = await self._run(_sync)
-        self._transaction_active = False
-        return result
+        # R16: clear the flag even if _run raises, so a failed commit can't leave
+        # _transaction_active permanently stale.
+        try:
+            return await self._run(_sync)
+        finally:
+            self._transaction_active = False
 
     async def transaction_rollback(self) -> dict:
         def _sync():
             doc = _acad_doc()
             doc.EndUndoMark()
-            doc.SendCommand("_UNDO B\n")  # Back to last undo mark
+            # R16: route UNDO B through the CMDACTIVE-aware sender instead of a raw
+            # SendCommand that could deadlock if a command/prompt is active.
+            self._safe_send_command(doc, "_UNDO B")
             return {"ok": True, "message": "Transaction rolled back"}
-        result = await self._run(_sync)
-        self._transaction_active = False
-        return result
+        try:
+            return await self._run(_sync)
+        finally:
+            self._transaction_active = False
 
     # ── system ──────────────────────────────────────────────────────────────
 
@@ -1453,8 +1541,22 @@ class ComBackend(AutoCADBackend):
     async def system_set_variable(self, name, value) -> dict:
         def _sync():
             app = _acad_app()
-            app.SetVariable(name, value)
-            return {"ok": True, "variable": name, "value": value}
+            # Coerce to the sysvar's actual type (NEW-com-set-variable-coercion):
+            # AutoCAD rejects e.g. a string "0" for the integer OSMODE. Probe the
+            # current value's type and convert to match; pass through on failure.
+            coerced = value
+            try:
+                current = app.GetVariable(name)
+                if isinstance(current, bool):
+                    coerced = bool(int(value)) if isinstance(value, str) else bool(value)
+                elif isinstance(current, int):
+                    coerced = int(float(value)) if isinstance(value, str) else int(value)
+                elif isinstance(current, float):
+                    coerced = float(value)
+            except Exception as exc:
+                log.debug("set_variable type probe for %s failed: %s", name, exc)
+            app.SetVariable(name, coerced)
+            return {"ok": True, "variable": name, "value": coerced}
         return await self._run(_sync)
 
     async def system_run_command(self, command) -> dict:
@@ -1482,9 +1584,37 @@ class ComBackend(AutoCADBackend):
 
     async def system_run_lisp(self, expression) -> dict:
         def _sync():
+            app = _acad_app()
             doc = _acad_doc()
-            result = doc.SendCommand(f"(progn {expression})\n")
-            return {"ok": True, "expression": expression, "result": str(result) if result else "nil"}
+            # R23: refuse to send while a command/prompt is active (raw SendCommand
+            # of a prompting form would deadlock the single STA thread).
+            try:
+                if int(app.GetVariable("CMDACTIVE")):
+                    raise RuntimeError(
+                        "AutoCAD has an active command/prompt (CMDACTIVE). "
+                        "Press ESC in AutoCAD and retry."
+                    )
+            except RuntimeError:
+                raise
+            except Exception as exc:
+                log.debug("CMDACTIVE read failed, proceeding: %s", exc)
+            # N6: SendCommand is void-returning, so the value can't be read from its
+            # return. Stash it in USERS1 and read it back after the form completes
+            # (CMDACTIVE-polled by _safe_send_command).
+            wrapped = (
+                '(vl-load-com)'
+                f'(setvar "USERS1" (vl-princ-to-string (progn {expression})))'
+            )
+            self._safe_send_command(doc, wrapped)
+            try:
+                result = app.GetVariable("USERS1")
+            except Exception:
+                result = None
+            return {
+                "ok": True,
+                "expression": expression,
+                "result": str(result) if result not in (None, "") else "nil",
+            }
         return await self._run(_sync)
 
     # ── corner ops ──────────────────────────────────────────────────────────
