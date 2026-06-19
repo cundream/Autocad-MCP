@@ -299,7 +299,33 @@ If you find a security issue, please open a private contact rather than a public
 
 ## Benchmarks
 
-A reproducible benchmark suite is in active development. Targets:
+### Correctness — v1.1.0 vs v1.0.0
+
+A reproducible A/B suite ([`benchmarks/`](benchmarks/)) runs the **same** 21
+deterministic, headless (ezdxf) checks against the public v1.0.0 release
+(`origin/main`) and v1.1.0 — each check in its own subprocess, so a hard crash is
+recorded as a miss instead of taking down the run.
+
+| Version | Checks passing | Pass rate |
+|---------|----------------|-----------|
+| **v1.0.0** (public release) | 8 / 21 | **38.1 %** |
+| **v1.1.0** (this release)   | 21 / 21 | **100 %** |
+
+**13 defects fixed · 0 regressions · 2.6× higher correctness pass-rate (+61.9 pts).**
+Fixes span dimensions (aligned/angular no longer raise), full-circle arrays, deterministic
+geometry (`point_intersection`/`point_tangent`), ARC selection, property parity, MTEXT
+rotation, the headless screenshot crash, the now-live `dim_overlap` critique, ISO-13567
+layer routing, and gear-outline geometry. Six core operations pass on **both** versions, so
+the suite is not a cherry-picked failure list — see [`benchmarks/README.md`](benchmarks/README.md)
+for the full table, methodology, and honesty caveats.
+
+```bash
+python benchmarks/compare_versions.py        # reproduce: current tree vs origin/main
+```
+
+### Performance (throughput) — coming
+
+A scale/throughput suite is in active development. Targets:
 
 - **Drawing scale** — 1k / 10k / 100k entity workloads
 - **Workload classes** — bulk creation, mass-modify, region select, render-and-screenshot, end-to-end design pass
