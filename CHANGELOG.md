@@ -7,7 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Next: 1.2 — closed-loop validation moat (scalar drawing-score, pre-plan clarification, iterative refiner + transaction-stack isolation)._
+_Next: closed-loop refiner (critique→repair→re-critique with transaction-stack isolation), pre-plan clarification pass, ISO 286 fit-table lookup (H7/g6 → deviations), and a local-VLM visual judge._
+
+## [1.2.0] — 2026-07-07
+
+Production-ISO parity + a measurable quality moat. **360 tests, ruff-clean.** Tool count: 111 → 116.
+
+### Added
+- **`drawing_settings`** — read or change common AutoCAD drawing settings by
+  friendly name (units mm/cm/m/inch/feet, linear/angular precision, LTSCALE,
+  DIMSCALE, text size, point mode/size, OSMODE, fillet radius) without
+  memorising system-variable names. Call with no argument for a full snapshot.
+  A convenience facade over `system_get_variable` / `system_set_variable`;
+  cross-backend.
+- **In-place editing** — `entity_edit_text` re-labels or resizes an existing
+  TEXT/MTEXT entity, and `entity_edit_geometry` re-drives a CIRCLE/LINE/ARC
+  (center, radius, endpoints, arc angles) — both **preserve the entity handle**,
+  so the user can adjust a drawing without delete-and-recreate. Cross-backend.
+- **2D GD&T (ISO 1101 / ASME Y14.5)** — `gd_frame` draws a feature control frame
+  (all 14 geometric characteristics, ⌀ zone prefix, Ⓜ/Ⓛ/Ⓢ material modifiers,
+  multi-datum references) and `datum_feature` places a datum symbol. Frames are
+  composed from LINE + TEXT so they render identically on **both** the COM and
+  ezdxf backends (ezdxf's native TOLERANCE entity renders blank via matplotlib).
+  No competing CAD MCP or surveyed text-to-CAD product ships 2D GD&T authoring.
+- **GD&T datum-consistency gate** — a new `gdt` critique focus fails
+  `drawing_finalize` when a feature control frame references a datum with no
+  matching datum feature (a meaningless FCF per ISO 1101).
+- **ISO 129 dimension tolerances** — `dimension_linear` / `dimension_radius` /
+  `dimension_diameter` gain `tol_upper` / `tol_lower` / `tol_mode`
+  (`symmetric` ±, `deviation` +a/-b, `limit` stacked, `basic` boxed) and a
+  `text_override` (e.g. `⌀20 H7`). Toleranced production dimensions are now
+  possible — previously the single biggest functional gap.
+- **Scalar drawing-score + invalidity ratio** (`engineering/scoring.py`) — the
+  `drawing_finalize` payload now carries a 0-100 `score`, an `invalidity_ratio`,
+  and an A-F `grade` over the union of the structural validator and the premium
+  critique, so drawing quality is regression-trackable (MUSE / CadBench grade an
+  Invalidity Ratio, not shape).
+
+### Fixed
+- **Honesty**: the COM backend advertised a false `all_entity_types` capability
+  (it authors 2D entities only, no 3D solids) — corrected to `entities_2d`.
 
 ## [1.1.1] — 2026-06-20
 

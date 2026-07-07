@@ -73,15 +73,21 @@ Tools are organized into 12 sections:
 1. Drawing Management (11 tools): `drawing_*`
 2. Entity Creation (13 tools): `entity_create_*`
 3. Dimensions (5 tools): `dimension_*`
-4. Entity Modification (10 tools): `entity_move/copy/rotate/scale/mirror/offset/delete/array_*`
+4. Entity Modification (12 tools): `entity_move/copy/rotate/scale/mirror/offset/delete/array_*`, plus in-place `entity_edit_text` (TEXT/MTEXT content/height/rotation) and `entity_edit_geometry` (CIRCLE/LINE/ARC — center/radius/endpoints/angles), both handle-preserving
 5. Entity Query (3 tools): `entity_get`, `entity_list`, `entity_delete_many`
 6. Layer Management (12 tools + 2 linetype_*): `layer_*`, `linetype_list`, `linetype_load`
 7. Block Operations (7 tools): `block_*`
 8. Analysis & Query (8 tools): `analysis_*`
 9. View & Screenshot (5 tools — includes `view_zoom_and_screenshot`): `view_*`
 10. Transactions (3 tools): `transaction_begin/commit/rollback`
-11. System (6 tools): `system_status/get_variable/set_variable/run_command/run_lisp/about`
+11. System (7 tools): `system_status/get_variable/set_variable/run_command/run_lisp/about`, plus `drawing_settings` (friendly units/scale/precision/osnap facade over system variables)
 12. Engineering / Deterministic CAD (7 tools): `gear_draw_*`, `keyway_draw_*`, `titleblock_apply_iso_a3`, `drawing_finalize`
+13. Premium meta-tools: `drawing_plan`, `drawing_critique`, `point_from_snap/intersection/tangent`, `construction_*`, `drawing_apply_iso_layers`, `dimension_auto`, `entity_select_smart`
+14. GD&T (ISO 1101 / ASME Y14.5): `gd_frame` (feature control frames), `datum_feature` — enforced by the `gdt` critique focus
+
+**ISO 129 tolerances:** `dimension_linear` / `dimension_radius` / `dimension_diameter` take `tol_upper` / `tol_lower` / `tol_mode` (`symmetric` ± / `deviation` +a/-b / `limit` / `basic`) and `text_override` (e.g. `⌀20 H7`). Prefer these over hand-drawn tolerance text.
+
+**Drawing score:** `drawing_finalize` returns `payload["score"]` — a 0-100 scalar + `invalidity_ratio` + A-F `grade` over the validator + critique union. Use it as the objective quality metric.
 
 ### Adding a New Tool
 

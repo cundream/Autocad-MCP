@@ -244,6 +244,10 @@ class AutoCADBackend(ABC):
         self, x1: float, y1: float, x2: float, y2: float,
         dim_x: float, dim_y: float, rotation: float = 0.0,
         layer: str | None = None,
+        tol_upper: float | None = None,
+        tol_lower: float | None = None,
+        tol_mode: str = "none",
+        text_override: str | None = None,
     ) -> EntityInfo: ...
 
     @abstractmethod
@@ -265,12 +269,20 @@ class AutoCADBackend(ABC):
     async def dimension_radius(
         self, cx: float, cy: float, chord_x: float, chord_y: float,
         leader_length: float = 10.0, layer: str | None = None,
+        tol_upper: float | None = None,
+        tol_lower: float | None = None,
+        tol_mode: str = "none",
+        text_override: str | None = None,
     ) -> EntityInfo: ...
 
     @abstractmethod
     async def dimension_diameter(
         self, x1: float, y1: float, x2: float, y2: float,
         leader_length: float = 10.0, layer: str | None = None,
+        tol_upper: float | None = None,
+        tol_lower: float | None = None,
+        tol_mode: str = "none",
+        text_override: str | None = None,
     ) -> EntityInfo: ...
 
     # ── entity modification ──────────────────────────────────────────────────
@@ -371,6 +383,34 @@ class AutoCADBackend(ABC):
         lineweight: float | None = None,
         visible: bool | None = None,
     ) -> dict: ...
+
+    @abstractmethod
+    async def entity_edit_text(
+        self, handle: str,
+        text: str | None = None,
+        height: float | None = None,
+        rotation: float | None = None,
+    ) -> EntityInfo:
+        """Edit an existing TEXT or MTEXT entity in place. Any argument left
+        None is unchanged. Returns the updated EntityInfo. Raises if the handle
+        is not a TEXT/MTEXT entity."""
+        ...
+
+    @abstractmethod
+    async def entity_edit_geometry(
+        self, handle: str,
+        cx: float | None = None, cy: float | None = None,
+        radius: float | None = None,
+        x1: float | None = None, y1: float | None = None,
+        x2: float | None = None, y2: float | None = None,
+        start_angle: float | None = None, end_angle: float | None = None,
+    ) -> EntityInfo:
+        """Edit the defining geometry of an existing entity in place.
+        - CIRCLE: cx / cy / radius
+        - LINE: x1 / y1 (start), x2 / y2 (end)
+        - ARC: cx / cy / radius / start_angle / end_angle (degrees)
+        Any argument left None is unchanged. Raises for unsupported types."""
+        ...
 
     @abstractmethod
     async def entity_list(
@@ -1159,11 +1199,252 @@ class AutoCADBackend(ABC):
 
         return [e for e in ents if _ok(e)]
 
+    # ── GD&T (ISO 1101 / ASME Y14.5) ─────────────────────────────────────────
+    # Composed from LINE + TEXT primitives so the exact same frame renders on
+    # both COM and ezdxf (ezdxf's native TOLERANCE entity renders blank through
+    # the matplotlib frontend). Deterministic layout math lives in engineering/
+    # gdt.py; datum letters are tracked so the `gdt` critique focus can verify
+    # every referenced datum is actually established on the part.
+
+    async def _place_boxed_text(
+        self, text: str, cx: float, cy: float, text_h: float, layer: str,
+    ) -> str:
+        """Create a TEXT entity roughly centred on (cx, cy). Returns its handle.
+        entity_create_text has no alignment arg, so approximate the centring with
+        the same width heuristic the title block uses."""
+        approx_w = len(text) * text_h * 0.7
+        t = await self.entity_create_text(
+            text, cx - approx_w / 2.0, cy - text_h / 2.0, height=text_h, layer=layer,
+        )
+        return t.handle
+
+    async def draw_feature_control_frame(
+        self,
+        symbol: str,
+        tolerance: str | float,
+        x: float,
+        y: float,
+        datums: list[str] | None = None,
+        height: float = 5.0,
+        diameter: bool = False,
+        modifier: str | None = None,
+        layer: str | None = None,
+    ) -> dict:
+        """Draw an ISO 1101 feature control frame with bottom-left corner at (x, y).
+
+        symbol: one of the 14 geometric characteristics (straightness, flatness,
+        circularity, cylindricity, profile_line, profile_surface, angularity,
+        perpendicularity, parallelism, position, concentricity, symmetry,
+        circular_runout, total_runout). `datums` is the ordered datum reference
+        list (e.g. ["A", "B"]); `diameter=True` prefixes ⌀ for a cylindrical zone;
+        `modifier` ∈ {M, L, S} appends the material-condition symbol.
+
+        Orientation/location/runout characteristics require at least one datum
+        (raises otherwise). The referenced datums are recorded for the `gdt`
+        critique focus.
+        """
+        from engineering.gdt import fcf_compartments, fcf_layout
+        comps = fcf_compartments(
+            symbol, tolerance, datums, diameter=diameter, modifier=modifier,
+        )
+        layer = layer or self._role_layer("dim")
+        await self._ensure_layer(layer, color=2)
+        lay = fcf_layout(comps, float(x), float(y), float(height))
+        handles: list[str] = []
+
+        box = lay["box"]
+        box_poly = await self.entity_create_polyline(
+            [[bx, by] for bx, by in box], closed=False, layer=layer,
+        )
+        handles.append(box_poly.handle)
+        for (sx, sy), (ex, ey) in lay["dividers"]:
+            ln = await self.entity_create_line(sx, sy, ex, ey, layer=layer)
+            handles.append(ln.handle)
+        th = lay["text_height"]
+        for text, tcx, tcy in lay["labels"]:
+            handles.append(await self._place_boxed_text(text, tcx, tcy, th, layer))
+
+        refs = getattr(self, "_gdt_datums_referenced", None)
+        if refs is None:
+            refs = set()
+            self._gdt_datums_referenced = refs
+        for d in (datums or []):
+            d = str(d).strip().upper()
+            if d:
+                refs.add(d)
+
+        return {
+            "ok": True,
+            "symbol": symbol,
+            "compartments": comps,
+            "handles": handles,
+            "width": lay["width"],
+            "height": lay["height"],
+            "layer": layer,
+        }
+
+    async def draw_datum_feature(
+        self,
+        letter: str,
+        x: float,
+        y: float,
+        size: float = 5.0,
+        layer: str | None = None,
+    ) -> dict:
+        """Place an ISO 1101 datum feature symbol (filled triangle + boxed letter)
+        with its apex at (x, y). Records the datum letter so a feature control
+        frame that references it passes the `gdt` critique focus."""
+        from engineering.gdt import datum_triangle, fcf_layout
+        letter = str(letter).strip().upper()
+        if not letter:
+            raise RuntimeError("draw_datum_feature: a datum letter is required.")
+        layer = layer or self._role_layer("dim")
+        await self._ensure_layer(layer, color=2)
+        size = float(size)
+        handles: list[str] = []
+
+        tri = datum_triangle(float(x), float(y), size, down=True)
+        tri_poly = await self.entity_create_polyline(
+            [[px, py] for px, py in tri], closed=True, layer=layer,
+        )
+        handles.append(tri_poly.handle)
+
+        box_h = size * 1.4
+        lay = fcf_layout([letter], float(x) - box_h / 2.0, float(y) - size - box_h, box_h)
+        box_poly = await self.entity_create_polyline(
+            [[bx, by] for bx, by in lay["box"]], closed=False, layer=layer,
+        )
+        handles.append(box_poly.handle)
+        for text, tcx, tcy in lay["labels"]:
+            handles.append(
+                await self._place_boxed_text(text, tcx, tcy, lay["text_height"], layer)
+            )
+
+        defined = getattr(self, "_gdt_datums_defined", None)
+        if defined is None:
+            defined = set()
+            self._gdt_datums_defined = defined
+        defined.add(letter)
+
+        return {"ok": True, "datum": letter, "handles": handles, "layer": layer}
+
+    # ── drawing settings (friendly system-variable facade) ───────────────────
+    # A user-facing wrapper over system_get_variable / system_set_variable that
+    # maps memorable names ("units", "dimscale", …) to AutoCAD system variables.
+    # Concrete + backend-agnostic: both engines accept the bare sysvar name, so
+    # the same call reads/writes on live COM and headless ezdxf alike.
+
+    async def drawing_settings(self, settings: dict | None = None) -> dict:
+        """Read (no args) or apply (with args) common drawing settings.
+
+        With ``settings=None`` returns a snapshot of every known setting. With a
+        dict, applies each provided key and returns ``{applied, errors, current}``.
+        Friendly keys: units, linear_precision, angular_precision, ltscale,
+        dimscale, text_size, point_mode, point_size, osmode, fillet_radius.
+        `units` accepts mm/cm/m/inch/feet (mapped to the INSUNITS code)."""
+        if not settings:
+            snapshot: dict = {}
+            for key, (var, kind) in _SETTING_MAP.items():
+                try:
+                    raw = await self.system_get_variable(var)
+                except Exception as exc:
+                    snapshot[key] = {"error": str(exc)}
+                    continue
+                snapshot[key] = _decode_setting(key, kind, raw)
+            return {"ok": True, "settings": snapshot}
+
+        applied: dict = {}
+        errors: dict = {}
+        for key, value in settings.items():
+            spec = _SETTING_MAP.get(key)
+            if spec is None:
+                errors[key] = f"unknown setting (valid: {sorted(_SETTING_MAP)})"
+                continue
+            var, kind = spec
+            try:
+                encoded = _encode_setting(key, kind, value)
+                await self.system_set_variable(var, encoded)
+                applied[key] = value
+            except Exception as exc:
+                errors[key] = str(exc)
+
+        result = {"ok": not errors, "applied": applied}
+        if errors:
+            result["errors"] = errors
+        return result
+
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+# Friendly setting name -> (AutoCAD system variable, value kind).
+_SETTING_MAP: dict[str, tuple[str, str]] = {
+    "units": ("INSUNITS", "units"),
+    "linear_precision": ("LUPREC", "int"),
+    "angular_precision": ("AUPREC", "int"),
+    "ltscale": ("LTSCALE", "float"),
+    "dimscale": ("DIMSCALE", "float"),
+    "text_size": ("TEXTSIZE", "float"),
+    "point_mode": ("PDMODE", "int"),
+    "point_size": ("PDSIZE", "float"),
+    "osmode": ("OSMODE", "int"),
+    "fillet_radius": ("FILLETRAD", "float"),
+}
+
+# INSUNITS code table (AutoCAD $INSUNITS): friendly name <-> integer code.
+_UNIT_TO_CODE: dict[str, int] = {
+    "unitless": 0, "inch": 1, "inches": 1, "in": 1,
+    "feet": 2, "ft": 2, "foot": 2,
+    "mm": 4, "millimeter": 4, "millimeters": 4,
+    "cm": 5, "centimeter": 5, "centimeters": 5,
+    "m": 6, "meter": 6, "meters": 6,
+}
+_CODE_TO_UNIT: dict[int, str] = {0: "unitless", 1: "inch", 2: "feet", 4: "mm", 5: "cm", 6: "m"}
+
+
+def _encode_setting(key: str, kind: str, value: Any) -> Any:
+    """Coerce a friendly value into the raw system-variable value."""
+    if kind == "units":
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return int(value)
+        code = _UNIT_TO_CODE.get(str(value).strip().lower())
+        if code is None:
+            raise ValueError(
+                f"units: unknown value {value!r}. Use one of "
+                f"{sorted(set(_UNIT_TO_CODE))} or an INSUNITS integer."
+            )
+        return code
+    if kind == "int":
+        return int(float(value))
+    if kind == "float":
+        return float(value)
+    return value
+
+
+def _decode_setting(key: str, kind: str, raw: Any) -> Any:
+    """Present a raw system-variable value in friendly form."""
+    if raw is None:
+        return None
+    if kind == "units":
+        try:
+            code = int(raw)
+        except (TypeError, ValueError):
+            return raw
+        return {"code": code, "name": _CODE_TO_UNIT.get(code, "unknown")}
+    if kind == "int":
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return raw
+    if kind == "float":
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return raw
+    return raw
 
 
 def shoelace_area(points: list[list[float]]) -> float:

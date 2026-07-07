@@ -806,10 +806,19 @@ async def dimension_linear(
     dim_y: Annotated[float, "Dimension line position Y"],
     rotation: Annotated[float, "Angle of the measured dimension (0=horizontal, 90=vertical)"] = 0.0,
     layer: Annotated[str | None, "Layer name"] = None,
+    tol_upper: Annotated[float | None, "Upper deviation (mm), e.g. 0.02 for +0.02"] = None,
+    tol_lower: Annotated[float | None, "Lower deviation (mm), e.g. 0.01 for -0.01"] = None,
+    tol_mode: Annotated[str, Field(default="none",
+        description="ISO 129 tolerance display: none | symmetric (±tol_upper) | "
+                    "deviation (+tol_upper/-tol_lower) | limit (stacked limits) | basic (boxed).")] = "none",
+    text_override: Annotated[str | None, "Replace the measured text ('<>' keeps the measurement)"] = None,
     ctx: Context = None,
 ) -> dict:
-    """Create a linear dimension measuring horizontal or vertical distance."""
-    result = await _backend(ctx).dimension_linear(x1, y1, x2, y2, dim_x, dim_y, rotation, layer)
+    """Create a linear dimension, optionally with an ISO 129 tolerance callout."""
+    result = await _backend(ctx).dimension_linear(
+        x1, y1, x2, y2, dim_x, dim_y, rotation, layer,
+        tol_upper, tol_lower, tol_mode, text_override,
+    )
     return _dc(result)
 
 
@@ -866,10 +875,18 @@ async def dimension_radius(
     chord_y: Annotated[float, "Point on the circle/arc Y"],
     leader_length: Annotated[float, "Length of the leader line"] = 10.0,
     layer: Annotated[str | None, "Layer name"] = None,
+    tol_upper: Annotated[float | None, "Upper deviation (mm)"] = None,
+    tol_lower: Annotated[float | None, "Lower deviation (mm)"] = None,
+    tol_mode: Annotated[str, Field(default="none",
+        description="ISO 129 tolerance display: none | symmetric | deviation | limit | basic.")] = "none",
+    text_override: Annotated[str | None, "Replace the measured text ('<>' keeps the measurement)"] = None,
     ctx: Context = None,
 ) -> dict:
-    """Create a radius dimension for a circle or arc."""
-    result = await _backend(ctx).dimension_radius(center_x, center_y, chord_x, chord_y, leader_length, layer)
+    """Create a radius dimension for a circle or arc, optionally toleranced."""
+    result = await _backend(ctx).dimension_radius(
+        center_x, center_y, chord_x, chord_y, leader_length, layer,
+        tol_upper, tol_lower, tol_mode, text_override,
+    )
     return _dc(result)
 
 
@@ -884,10 +901,18 @@ async def dimension_diameter(
     y2: Annotated[float, "Second point on diameter Y"],
     leader_length: Annotated[float, "Leader line length"] = 10.0,
     layer: Annotated[str | None, "Layer name"] = None,
+    tol_upper: Annotated[float | None, "Upper deviation (mm)"] = None,
+    tol_lower: Annotated[float | None, "Lower deviation (mm)"] = None,
+    tol_mode: Annotated[str, Field(default="none",
+        description="ISO 129 tolerance display: none | symmetric | deviation | limit | basic.")] = "none",
+    text_override: Annotated[str | None, "Replace the measured text ('<>' keeps the measurement)"] = None,
     ctx: Context = None,
 ) -> dict:
-    """Create a diameter dimension for a circle (two points on opposite sides)."""
-    result = await _backend(ctx).dimension_diameter(x1, y1, x2, y2, leader_length, layer)
+    """Create a diameter dimension for a circle, optionally toleranced (e.g. ⌀20 H7)."""
+    result = await _backend(ctx).dimension_diameter(
+        x1, y1, x2, y2, leader_length, layer,
+        tol_upper, tol_lower, tol_mode, text_override,
+    )
     return _dc(result)
 
 
@@ -1138,6 +1163,56 @@ async def entity_set_properties(
     """Change one or more properties of an entity (layer, color, linetype, lineweight, visibility)."""
     await ctx.debug(f"Setting properties for entity {handle}")
     return await _backend(ctx).entity_set_properties(handle, layer, color, linetype, lineweight, visible)
+
+
+@mcp.tool(
+    annotations={"title": "Edit Text", "readOnlyHint": False, "destructiveHint": False},
+    tags={"entity", "modify"},
+)
+async def entity_edit_text(
+    handle: Annotated[str, "Handle of an existing TEXT or MTEXT entity"],
+    text: Annotated[str | None, "New text content (unchanged if omitted)"] = None,
+    height: Annotated[float | None, "New text height (unchanged if omitted)"] = None,
+    rotation: Annotated[float | None, "New rotation in degrees (unchanged if omitted)"] = None,
+    ctx: Context = None,
+) -> dict:
+    """Edit an existing text label in place — change its content, height, or rotation.
+
+    Use this to rename/relabel without deleting and recreating (which would lose
+    the handle). Works on both TEXT and MTEXT.
+    """
+    await ctx.debug(f"Editing text entity {handle}")
+    result = await _backend(ctx).entity_edit_text(handle, text, height, rotation)
+    return _dc(result)
+
+
+@mcp.tool(
+    annotations={"title": "Edit Geometry", "readOnlyHint": False, "destructiveHint": False},
+    tags={"entity", "modify"},
+)
+async def entity_edit_geometry(
+    handle: Annotated[str, "Handle of an existing CIRCLE, LINE, or ARC"],
+    cx: Annotated[float | None, "New center X (CIRCLE/ARC)"] = None,
+    cy: Annotated[float | None, "New center Y (CIRCLE/ARC)"] = None,
+    radius: Annotated[float | None, "New radius (CIRCLE/ARC)"] = None,
+    x1: Annotated[float | None, "New start X (LINE)"] = None,
+    y1: Annotated[float | None, "New start Y (LINE)"] = None,
+    x2: Annotated[float | None, "New end X (LINE)"] = None,
+    y2: Annotated[float | None, "New end Y (LINE)"] = None,
+    start_angle: Annotated[float | None, "New start angle in degrees (ARC)"] = None,
+    end_angle: Annotated[float | None, "New end angle in degrees (ARC)"] = None,
+    ctx: Context = None,
+) -> dict:
+    """Edit the defining geometry of an existing entity in place (no delete/recreate).
+
+    CIRCLE: cx/cy/radius · LINE: x1/y1/x2/y2 · ARC: cx/cy/radius/start_angle/end_angle.
+    Any argument left out is unchanged; the handle is preserved.
+    """
+    await ctx.debug(f"Editing geometry of entity {handle}")
+    result = await _backend(ctx).entity_edit_geometry(
+        handle, cx, cy, radius, x1, y1, x2, y2, start_angle, end_angle,
+    )
+    return _dc(result)
 
 
 # ---------------------------------------------------------------------------
@@ -2182,6 +2257,31 @@ async def system_set_variable(
 
 
 @mcp.tool(
+    annotations={"title": "Drawing Settings (read / change)", "readOnlyHint": False,
+                 "destructiveHint": False},
+    tags={"system"},
+)
+async def drawing_settings(
+    settings: Annotated[dict | None, Field(default=None, description=(
+        "Omit to READ every setting; pass a dict to CHANGE them. Friendly keys: "
+        "units (mm/cm/m/inch/feet), linear_precision, angular_precision, ltscale, "
+        "dimscale, text_size, point_mode, point_size, osmode, fillet_radius. "
+        "Example: {\"units\": \"mm\", \"dimscale\": 1.0, \"linear_precision\": 2}."))] = None,
+    ctx: Context = None,
+) -> dict:
+    """Read or change common AutoCAD drawing settings by friendly name.
+
+    A convenience facade over the system variables (INSUNITS, LUPREC, LTSCALE,
+    DIMSCALE, TEXTSIZE, OSMODE, …) so the user can say "set units to mm and
+    dimension scale to 1" without memorising sysvar names. Call with no argument
+    to get a full snapshot of the current settings.
+    """
+    if settings:
+        await ctx.info(f"Applying drawing settings: {', '.join(settings)}")
+    return await _backend(ctx).drawing_settings(settings)
+
+
+@mcp.tool(
     annotations={"title": "Run AutoCAD Command", "readOnlyHint": False},
     tags={"system"},
 )
@@ -2468,6 +2568,12 @@ async def drawing_finalize(
     payload["critique"] = [issue.to_dict() for issue in critique_issues]
     payload["critique_summary"] = crit_summary
 
+    # I4 — a single regression-trackable scalar over the union of the structural
+    # validator and the premium critique (MUSE/CadBench grade an Invalidity Ratio,
+    # not shape). 100 = clean; errors dominate the penalty.
+    from engineering.scoring import combine
+    payload["score"] = combine(result.summary, crit_summary)
+
     info = await backend.drawing_info()
     payload["dwg_path"] = getattr(info, "full_path", "")
 
@@ -2694,6 +2800,71 @@ async def entity_select_smart(
     """Select entities by semantic predicate instead of memorising handles."""
     result = await _backend(ctx).entity_select_smart(predicate)
     return [_dc(e) for e in result]
+
+
+# ---------------------------------------------------------------------------
+# ── SECTION 14: GD&T (ISO 1101 / ASME Y14.5) ────────────────────────────────
+# ---------------------------------------------------------------------------
+# 2D geometric tolerancing — feature control frames + datum features — composed
+# from LINE + TEXT so the same frame renders on COM and ezdxf. The datum-
+# consistency rule is enforced by the `gdt` critique focus at finalize time.
+
+@mcp.tool(
+    annotations={"title": "GD&T: Feature Control Frame (ISO 1101)",
+                 "destructiveHint": False},
+    tags={"engineering", "gdt"},
+)
+async def gd_frame(
+    symbol: Annotated[str, Field(description=(
+        "Geometric characteristic: straightness, flatness, circularity, "
+        "cylindricity, profile_line, profile_surface, angularity, "
+        "perpendicularity, parallelism, position, concentricity, symmetry, "
+        "circular_runout, total_runout."))],
+    tolerance: Annotated[float, "Tolerance zone value (mm)."],
+    x: Annotated[float, "Frame bottom-left corner X."],
+    y: Annotated[float, "Frame bottom-left corner Y."],
+    datums: Annotated[list[str] | None, Field(default=None,
+        description="Ordered datum references, e.g. ['A','B']. Required for "
+                    "orientation/location/runout characteristics.")] = None,
+    height: Annotated[float, Field(default=5.0, gt=0,
+        description="Frame height (mm); text scales with it.")] = 5.0,
+    diameter: Annotated[bool, Field(default=False,
+        description="Prefix ⌀ for a cylindrical (diametral) tolerance zone.")] = False,
+    modifier: Annotated[str | None, Field(default=None,
+        description="Material-condition modifier: M (MMC), L (LMC), S (RFS).")] = None,
+    layer: Annotated[str | None, "Layer (defaults to the active DIM layer)."] = None,
+    ctx: Context = None,
+) -> dict:
+    """Draw an ISO 1101 feature control frame from LINE + TEXT primitives.
+
+    Renders identically on COM and ezdxf. Referenced datums are recorded so the
+    `gdt` critique focus flags any datum with no matching datum feature.
+    """
+    return await _backend(ctx).draw_feature_control_frame(
+        symbol, tolerance, x, y, datums, height, diameter, modifier, layer,
+    )
+
+
+@mcp.tool(
+    annotations={"title": "GD&T: Datum Feature (ISO 1101)",
+                 "destructiveHint": False},
+    tags={"engineering", "gdt"},
+)
+async def datum_feature(
+    letter: Annotated[str, "Datum letter, e.g. 'A' (avoid I, O, Q per ISO 1101)."],
+    x: Annotated[float, "Datum triangle apex X (on the referenced feature)."],
+    y: Annotated[float, "Datum triangle apex Y."],
+    size: Annotated[float, Field(default=5.0, gt=0,
+        description="Triangle/label size (mm).")] = 5.0,
+    layer: Annotated[str | None, "Layer (defaults to the active DIM layer)."] = None,
+    ctx: Context = None,
+) -> dict:
+    """Place a datum feature symbol (filled triangle + boxed letter).
+
+    Establishes the datum so a feature control frame referencing this letter
+    passes the `gdt` critique focus.
+    """
+    return await _backend(ctx).draw_datum_feature(letter, x, y, size, layer)
 
 
 # ---------------------------------------------------------------------------

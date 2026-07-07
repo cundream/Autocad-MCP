@@ -202,6 +202,46 @@ def _regen():
         log.debug("Regen failed: %s", exc)
 
 
+def _apply_dim_tolerance(dim, tol_upper, tol_lower, tol_mode="none", text_override=None):
+    """Best-effort ISO 129 tolerance rendering on a live COM dimension.
+
+    Maps the shared tolerance spec (see engineering/tolerances.py) to the COM
+    Dimension object's per-entity properties (ToleranceDisplay / ToleranceUpper
+    / ToleranceLower, or the Limits display) plus an optional TextOverride. COM
+    property names vary by AutoCAD version, so each set is guarded — a missing
+    property degrades gracefully instead of failing the dimension.
+    """
+    from engineering.tolerances import build_dim_override
+    try:
+        override, text = build_dim_override(tol_upper, tol_lower, tol_mode, text_override)
+    except ValueError:
+        raise
+    if text:
+        try:
+            dim.TextOverride = text
+        except Exception as exc:
+            log.debug("dim TextOverride failed: %s", exc)
+    if not override:
+        return
+    # acTolerance* enums: 0=None, 1=Symmetrical, 2=Deviation, 3=Limits, 4=Basic
+    try:
+        if "dimgap" in override:            # basic (boxed) dimension
+            dim.ToleranceDisplay = 4
+            return
+        if override.get("dimlim"):          # limit dimension
+            dim.ToleranceDisplay = 3
+        elif override.get("dimtp") == override.get("dimtm"):
+            dim.ToleranceDisplay = 1        # symmetrical ±
+        else:
+            dim.ToleranceDisplay = 2        # deviation
+        if "dimtp" in override:
+            dim.ToleranceUpperLimit = float(override["dimtp"])
+        if "dimtm" in override:
+            dim.ToleranceLowerLimit = float(override["dimtm"])
+    except Exception as exc:
+        log.debug("dim tolerance apply failed (version-dependent COM props): %s", exc)
+
+
 def _entity_info(entity) -> EntityInfo:
     """Convert a COM entity object to EntityInfo dataclass."""
     try:
@@ -780,6 +820,7 @@ class ComBackend(AutoCADBackend):
 
     async def dimension_linear(
         self, x1, y1, x2, y2, dim_x, dim_y, rotation=0.0, layer=None,
+        tol_upper=None, tol_lower=None, tol_mode="none", text_override=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
@@ -789,6 +830,7 @@ class ComBackend(AutoCADBackend):
             )
             if layer:
                 dim.Layer = layer
+            _apply_dim_tolerance(dim, tol_upper, tol_lower, tol_mode, text_override)
             _regen()
             return _entity_info(dim)
         return await self._run(_sync)
@@ -825,6 +867,7 @@ class ComBackend(AutoCADBackend):
 
     async def dimension_radius(
         self, cx, cy, chord_x, chord_y, leader_length=10.0, layer=None,
+        tol_upper=None, tol_lower=None, tol_mode="none", text_override=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
@@ -833,12 +876,14 @@ class ComBackend(AutoCADBackend):
             )
             if layer:
                 dim.Layer = layer
+            _apply_dim_tolerance(dim, tol_upper, tol_lower, tol_mode, text_override)
             _regen()
             return _entity_info(dim)
         return await self._run(_sync)
 
     async def dimension_diameter(
         self, x1, y1, x2, y2, leader_length=10.0, layer=None,
+        tol_upper=None, tol_lower=None, tol_mode="none", text_override=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
@@ -847,6 +892,7 @@ class ComBackend(AutoCADBackend):
             )
             if layer:
                 dim.Layer = layer
+            _apply_dim_tolerance(dim, tol_upper, tol_lower, tol_mode, text_override)
             _regen()
             return _entity_info(dim)
         return await self._run(_sync)
@@ -1034,6 +1080,75 @@ class ComBackend(AutoCADBackend):
             if visible is not None:
                 ent.Visible = bool(visible)
             return {"ok": True, "handle": handle}
+        return await self._run(_sync)
+
+    async def entity_edit_text(
+        self, handle, text=None, height=None, rotation=None,
+    ) -> EntityInfo:
+        def _sync():
+            doc = _acad_doc()
+            ent = doc.HandleToObject(handle)
+            name = ent.ObjectName.replace("AcDb", "").upper()
+            if name not in ("TEXT", "MTEXT"):
+                raise RuntimeError(
+                    f"entity_edit_text: handle {handle} is {name}, expected TEXT or MTEXT."
+                )
+            if text is not None:
+                ent.TextString = str(text)
+            if height is not None:
+                ent.Height = float(height)
+            if rotation is not None:
+                # MTEXT uses radians for Rotation; DBText/Text uses radians too.
+                ent.Rotation = deg2rad(float(rotation))
+            _regen()
+            return _entity_info(ent)
+        return await self._run(_sync)
+
+    async def entity_edit_geometry(
+        self, handle, cx=None, cy=None, radius=None,
+        x1=None, y1=None, x2=None, y2=None,
+        start_angle=None, end_angle=None,
+    ) -> EntityInfo:
+        def _sync():
+            doc = _acad_doc()
+            ent = doc.HandleToObject(handle)
+            name = ent.ObjectName.replace("AcDb", "").upper()
+            if name == "CIRCLE":
+                c = ent.Center
+                ent.Center = _apoint(
+                    float(cx) if cx is not None else c[0],
+                    float(cy) if cy is not None else c[1],
+                )
+                if radius is not None:
+                    ent.Radius = float(radius)
+            elif name == "LINE":
+                s, e = ent.StartPoint, ent.EndPoint
+                ent.StartPoint = _apoint(
+                    float(x1) if x1 is not None else s[0],
+                    float(y1) if y1 is not None else s[1],
+                )
+                ent.EndPoint = _apoint(
+                    float(x2) if x2 is not None else e[0],
+                    float(y2) if y2 is not None else e[1],
+                )
+            elif name == "ARC":
+                c = ent.Center
+                ent.Center = _apoint(
+                    float(cx) if cx is not None else c[0],
+                    float(cy) if cy is not None else c[1],
+                )
+                if radius is not None:
+                    ent.Radius = float(radius)
+                if start_angle is not None:
+                    ent.StartAngle = deg2rad(float(start_angle))
+                if end_angle is not None:
+                    ent.EndAngle = deg2rad(float(end_angle))
+            else:
+                raise RuntimeError(
+                    f"entity_edit_geometry: {name} not supported (use CIRCLE, LINE, or ARC)."
+                )
+            _regen()
+            return _entity_info(ent)
         return await self._run(_sync)
 
     async def entity_list(
@@ -1582,9 +1697,13 @@ class ComBackend(AutoCADBackend):
                     "open_documents": doc_count,
                     "active_document": active_doc,
                     "transaction_active": tx_active,
+                    # Accurate capability list: the backend authors 2D entities
+                    # (lines/arcs/circles/polylines/text/hatch/dims/blocks). It
+                    # does NOT create 3D solids, so the old "all_entity_types"
+                    # claim was false — report "entities_2d" instead.
                     "capabilities": [
                         "live_control", "screenshot", "transactions",
-                        "com_api", "lisp_execution", "all_entity_types",
+                        "com_api", "lisp_execution", "entities_2d",
                     ],
                 }
             except Exception as exc:

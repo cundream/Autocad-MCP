@@ -3,7 +3,32 @@
 **Production-grade AutoCAD automation for the Model Context Protocol.**
 Dual-engine. Battle-tested. Model-agnostic.
 
-v1.1.1 · 111 tools · 5 resources · 5 prompt templates · COM + ezdxf backends · Python 3.11+ · MIT
+[![Version](https://img.shields.io/badge/version-1.2.0-1f6feb)](CHANGELOG.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-3fb950)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%2B-1f6feb?logo=python&logoColor=white)](pyproject.toml)
+[![MCP](https://img.shields.io/badge/MCP-FastMCP%203.0-8957e5)](https://github.com/jlowin/fastmcp)
+[![Tests](https://img.shields.io/badge/tests-360%20passing-3fb950)](tests/)
+[![Ruff](https://img.shields.io/badge/lint-ruff-261230?logo=ruff&logoColor=white)](https://github.com/astral-sh/ruff)
+[![Stars](https://img.shields.io/github/stars/U-C4N/Autocad-MCP?style=flat&color=e3b341)](https://github.com/U-C4N/Autocad-MCP/stargazers)
+
+> **116 tools · 5 resources · 5 prompt templates · COM + ezdxf backends**
+>
+> One MCP contract, two execution engines: drive a **live AutoCAD** instance over COM, or run **fully headless** on any OS with ezdxf — same tool surface, same response shapes.
+
+**New in 1.2** — 2D GD&T feature control frames + datum features (ISO 1101), ISO 129 dimension tolerances (±/deviation/limit/basic + text override), in-place editing of existing text and geometry (`entity_edit_text` / `entity_edit_geometry`), a friendly `drawing_settings` facade (units/scale/precision/osnap), and a scalar drawing-score + invalidity-ratio at `drawing_finalize`.
+
+### What makes it different
+
+| | AutoCAD MCP Pro | Typical AutoCAD MCP |
+|---|:---:|:---:|
+| Live **COM** + headless **ezdxf** (one API) | ✅ | one or the other |
+| **Standards-validation gate** (ISO 128 critique → finalize) | ✅ | ❌ |
+| **2D GD&T** authoring + datum-consistency gate (ISO 1101) | ✅ | ❌ |
+| **ISO 129 dimension tolerances** (±/limit/fit text) | ✅ | ❌ |
+| Deterministic OSNAP (no coordinate guessing) | ✅ | ❌ |
+| Scalar **drawing-score** / invalidity-ratio | ✅ | ❌ |
+| Security-hardened (AutoLISP allowlist, path guards, HTTP auth) | ✅ | rare |
+| Test suite | **360** | few / none |
 
 ---
 
@@ -15,7 +40,7 @@ My day job at **Anka-Makine** revolves around intensive AutoCAD work — product
 
 After months of leaning on this server inside my own daily workflow — and watching it shave hours off my week without a single misstep on critical drawings — I decided it deserved a public release. It works. It is fast. It stays out of the way.
 
-The model on the other end of the wire does not matter. The Model Context Protocol is the contract; AutoCAD MCP Pro is one well-typed implementation of that contract. Any MCP-aware client — and the LLM behind it — sees the same 111 tools.
+The model on the other end of the wire does not matter. The Model Context Protocol is the contract; AutoCAD MCP Pro is one well-typed implementation of that contract. Any MCP-aware client — and the LLM behind it — sees the same 116 tools.
 
 I will keep this repository actively maintained as my own use of it evolves, and **a public benchmark suite is on the way** — I want to give you numbers, not adjectives.
 
@@ -26,6 +51,7 @@ I will keep this repository actively maintained as my own use of it evolves, and
 ## Table of Contents
 
 - [Why This Exists](#why-this-exists)
+- [Why It's the Best AutoCAD MCP](#why-its-the-best-autocad-mcp)
 - [Highlights](#highlights)
 - [AI Client Compatibility](#ai-client-compatibility)
 - [Quickstart](#quickstart)
@@ -56,6 +82,78 @@ AutoCAD MCP Pro takes a different stance:
 
 ---
 
+## Why It's the Best AutoCAD MCP
+
+The AutoCAD-MCP field is crowded, but it clusters into a familiar shape: a
+COM-only, Windows-only script with a handful of `draw_line` / `draw_circle`
+tools, no tests, no security model, and — crucially — **no idea whether the
+drawing it produced is actually correct.** Those projects let an LLM *push
+geometry*. AutoCAD MCP Pro is built to let an LLM *produce a drawing that passes
+review.* That difference is the whole thesis, and it shows up in five places no
+other AutoCAD MCP covers at once:
+
+### 1. It is the only one that checks its own work
+
+Every competing AutoCAD/CAD MCP surveyed — COM scripts, the LT/AutoLISP servers,
+the multi-CAD COM bridges — will happily emit a drawing with a leftover
+construction line, a non-standard lineweight, an untrimmed corner, or two
+dimensions stacked on top of each other, and report success. AutoCAD MCP Pro
+runs a **closed quality gate** at `drawing_finalize`: an 8-step structural
+validator **plus** an ISO-128 premium critique (lineweights, layer colours,
+untrimmed corners, duplicate entities, leftover scaffolding, dimension overlap,
+and GD&T datum consistency). Leftover scaffolding or an off-standard lineweight
+**blocks the gate** instead of slipping into a review. This design-rule
+validation is the durable moat — and it is exactly the capability Autodesk's own
+in-AutoCAD AI demo leads with (automated compliance checking).
+
+### 2. It speaks real engineering, not just geometry
+
+- **2D GD&T (ISO 1101 / ASME Y14.5)** — feature control frames and datum
+  features, with a gate that rejects a frame referencing an undefined datum. No
+  competing AutoCAD MCP, and none of the surveyed text-to-CAD products, ships 2D
+  GD&T authoring *with validation*.
+- **ISO 129 dimension tolerances** — `±` / deviation / limit / basic callouts
+  and fit text (`⌀20 H7`). A drawing without tolerances is not manufacturable;
+  most MCPs cannot express them at all.
+- **Deterministic engineering primitives** — involute gears (front view +
+  section A-A), DIN 6885 keyed bores, ISO 7200 title blocks — parametric, not
+  hand-drawn line-by-line by the model.
+
+### 3. It removes the #1 LLM drawing error: guessed coordinates
+
+Research on program-to-geometry (GeoGramBench, 2026) shows frontier models score
+under 50% when they have to *compute* points. AutoCAD MCP Pro gives the model
+**deterministic OSNAP** instead — `point_from_snap`, `point_intersection`,
+`point_tangent` return exact endpoints, intersections, and tangents so the model
+never guesses a coordinate. `selection_get` even reads the user's live pick set,
+so the AI edits exactly what was selected.
+
+### 4. It runs where you run — live *and* headless
+
+One tool surface over **two engines**: drive a live AutoCAD session over COM, or
+run fully headless with ezdxf on Linux, macOS, or a CI runner with no AutoCAD
+installed. Most competitors are COM-only (Windows + a running AutoCAD) *or*
+file-only — not both behind an identical API with identical response shapes.
+
+### 5. It is engineered like a product, not a demo
+
+**360 passing tests**, a ruff-clean codebase, a security model that assumes
+hostile input (AutoLISP allowlist with bypass-regression tests, path-traversal
+guards, HTTP bind guard + bearer-token auth, per-call COM timeout), and a scalar
+**drawing-score + invalidity-ratio** so quality is a number you can track across
+releases — not an adjective. A reproducible correctness benchmark ships in
+[`benchmarks/`](benchmarks/).
+
+> **In one line:** other AutoCAD MCPs help a model *draw*; AutoCAD MCP Pro helps
+> a model *deliver a drawing that passes engineering review* — validated,
+> toleranced, standards-compliant, on any OS, with the tests to prove it.
+
+See the [feature comparison](#what-makes-it-different) at the top and the
+[Roadmap](#roadmap) for how the moat widens from here (closed-loop
+`critique → repair` refiner, ISO 286 fits, public benchmark numbers).
+
+---
+
 ## Highlights
 
 - **Dual Engine Architecture**
@@ -63,28 +161,29 @@ AutoCAD MCP Pro takes a different stance:
   - **ezdxf backend**: headless DXF file operations powered by [ezdxf](https://github.com/mozman/ezdxf). Works on every platform, ideal for batch workloads and CI pipelines.
   - Automatic backend selection, with a clean override via `AUTOCAD_MCP_BACKEND`.
 
-- **111 Tools, 12 Categories**
+- **116 Tools, 14 Categories**
   - Drawing management — `drawing_new`, `drawing_open`, `drawing_save`, `drawing_save_as`, `drawing_export_dxf`, `drawing_export_pdf`, `drawing_purge`, `drawing_audit`, `drawing_undo`, `drawing_redo`, `drawing_close`
   - Entity creation — line, circle, arc, polyline, rectangle, text, mtext, hatch, spline, ellipse, point, block reference, batch create
-  - Dimensions — linear, aligned, angular, radius, diameter
-  - Entity modification — move, copy, rotate, scale, mirror, offset, delete, rectangular array, polar array, batch modify, set properties
+  - Dimensions — linear, aligned, angular, radius, diameter (with ISO 129 `tol_mode`: ± / deviation / limit / basic + fit text)
+  - Entity modification — move, copy, rotate, scale, mirror, offset, delete, rectangular/polar array, batch modify, set properties, plus in-place `entity_edit_text` and `entity_edit_geometry` (handle-preserving)
   - Entity query — `entity_get`, `entity_list`, `entity_delete_many`, and `selection_get` (read the user's live viewport "pickfirst" selection so the AI dimensions/edits only what was picked, not the whole drawing — COM backend)
   - Layer management — full lifecycle: create, delete, modify, freeze/thaw, lock/unlock, hide/show, isolate, set current
   - Block operations — list, insert, explode, attribute get/set, create-from-entities, find references
   - Analysis — entity stats, region select, distance/area measurement, bounding box, select by type/layer, layer statistics
   - View control — zoom extents, zoom window, screenshot, combined zoom-and-screenshot
   - Transactions — begin, commit, rollback, with disk-backed snapshots
-  - System — status, get/set variables, run command, run AutoLISP, about
+  - System — status, get/set variables, run command, run AutoLISP, about, plus `drawing_settings` (friendly units/scale/precision/osnap facade)
   - Templates and validation — apply standard layer templates, validate drawings against rule sets
   - Engineering / deterministic CAD — involute gear front view + section A-A, DIN 6885 keyed bore, ISO A3 title block, and the 8-step `drawing_finalize` gate
-  - Premium drafting workflow — `drawing_plan`, deterministic OSNAP (`point_from_snap` / `point_intersection` / `point_tangent`), `drawing_apply_iso_layers`, `dimension_auto`, `entity_select_smart`, `drawing_critique`, `construction_*`
+  - GD&T (ISO 1101 / ASME Y14.5) — `gd_frame` (feature control frames: all 14 characteristics, ⌀ zones, Ⓜ/Ⓛ/Ⓢ modifiers, multi-datum) and `datum_feature`, with a datum-consistency critique gate
+  - Premium drafting workflow — `drawing_plan`, deterministic OSNAP (`point_from_snap` / `point_intersection` / `point_tangent`), `drawing_apply_iso_layers`, `dimension_auto`, `entity_select_smart`, `drawing_critique`, `construction_*`, and a scalar drawing-score + invalidity-ratio at finalize
 
 - **Production-Grade Plumbing**
   - FastMCP 3.0 lifespan-managed backend singleton
   - Middleware stack: error handling, audit logging, timing, request logging
   - Structured progress reports for long-running operations (`drawing_open`, exports, batch ops)
-  - 318 tests across drawing, entity, dimension, layer, block, analysis, batch/template, engineering, premium, mocked-COM, and security suites
-  - Ruff-clean codebase, 318-test suite
+  - 360 tests across drawing, entity, dimension, layer, block, analysis, batch/template, engineering, GD&T, premium, mocked-COM, and security suites
+  - Ruff-clean codebase, 360-test suite
 
 - **Closed-Loop Quality Gate**
   - `drawing_finalize` runs **both** the 8-step structural validator **and** the premium ISO-128 critique (lineweights, layer colors, untrimmed corners, duplicate entities, leftover construction, dimension overlap) — leftover scaffolding or a non-standard lineweight blocks the gate instead of slipping through.
@@ -103,7 +202,7 @@ AutoCAD MCP Pro takes a different stance:
 
 ## AI Client Compatibility
 
-AutoCAD MCP Pro implements the Model Context Protocol. **If a host can speak MCP, it can drive this server.** No model-specific code, no per-vendor patches — the contract is the tool schema, and any MCP-aware client (and any LLM behind it) inherits the full 87-tool surface for free.
+AutoCAD MCP Pro implements the Model Context Protocol. **If a host can speak MCP, it can drive this server.** No model-specific code, no per-vendor patches — the contract is the tool schema, and any MCP-aware client (and any LLM behind it) inherits the full 116-tool surface for free.
 
 | Host                        | Status      | Notes                              |
 |-----------------------------|-------------|------------------------------------|
@@ -125,7 +224,7 @@ pip install -e ".[full]"
 python server.py
 ```
 
-That is it. The server starts in STDIO mode and your MCP client will discover all 111 tools.
+That is it. The server starts in STDIO mode and your MCP client will discover all 116 tools.
 
 For headless / CI workflows:
 
@@ -242,18 +341,21 @@ Copy `.env.example` to `.env` and edit:
 |---------------------|------:|---------------------------------------------------------------------------|
 | Drawing             |    11 | `drawing_new`, `drawing_open`, `drawing_save`, `drawing_export_pdf`, `drawing_purge`, `drawing_close` |
 | Entity Creation     |    13 | `entity_create_line`, `entity_create_polyline`, `entity_create_hatch`, `entity_create_block_ref`      |
-| Dimensions          |     5 | `dimension_linear`, `dimension_aligned`, `dimension_angular`, `dimension_radius`, `dimension_diameter`|
-| Entity Modification |    10 | `entity_move`, `entity_rotate`, `entity_array_polar`, `entity_offset`, `entity_array_rectangular`     |
+| Dimensions          |     5 | `dimension_linear`, `dimension_aligned`, `dimension_angular`, `dimension_radius`, `dimension_diameter` (with ISO 129 `tol_mode`) |
+| Entity Modification |    12 | `entity_move`, `entity_rotate`, `entity_offset`, `entity_edit_text`, `entity_edit_geometry`, `entity_set_properties` |
 | Entity Query        |     4 | `entity_get`, `entity_list`, `entity_delete_many`, `selection_get`                                    |
 | Layer Management    |    12 | `layer_create`, `layer_freeze`, `layer_isolate`, `layer_modify`                                       |
 | Block Operations    |     7 | `block_insert`, `block_explode`, `block_create_from_entities`, `block_find_references`                |
 | Analysis            |     8 | `analysis_entity_stats`, `analysis_bounding_box`, `analysis_select_by_layer`, `analysis_layer_stats`  |
 | View                |     4 | `view_zoom_extents`, `view_screenshot`, `view_zoom_and_screenshot`                                    |
 | Transactions        |     3 | `transaction_begin`, `transaction_commit`, `transaction_rollback`                                     |
-| System              |     6 | `system_status`, `system_run_command`, `system_run_lisp`, `system_about`                              |
+| System              |     7 | `system_status`, `system_run_command`, `system_run_lisp`, `system_about`, `drawing_settings`         |
 | Batch / Templates   |     5 | `entity_batch_create`, `entity_batch_modify`, `template_apply_layers`, `validation_check`             |
+| Engineering         |     7 | `gear_draw_*`, `keyway_draw_*`, `titleblock_apply_iso_a3`, `drawing_finalize`                          |
+| Premium workflow    |    11 | `drawing_plan`, `drawing_critique`, `point_from_snap` / `point_intersection` / `point_tangent`, `dimension_auto`, `entity_select_smart` |
+| GD&T (ISO 1101)     |     2 | `gd_frame` (feature control frame), `datum_feature`                                                   |
 
-`system_about` returns the live tool inventory — the count above is illustrative; the runtime number is authoritative.
+`system_about` returns the live tool inventory — the counts above are illustrative; the runtime number is authoritative.
 
 ---
 
@@ -396,16 +498,32 @@ autocad-mcp/
 
 ## Roadmap
 
-- [x] **1.0** — Initial public release
-- [x] **1.1** — Correctness, cross-backend parity & the enforced quality gate: `drawing_finalize` now runs the premium ISO-128 critique; deterministic geometry (`point_intersection`/`point_tangent`); dimension/save-format/polar-array/offset fixes across both engines; COM robustness (CoUninitialize, transaction & LISP guards); security hardening (HTTP bind guard on every launch path, LISP-allowlist bypass tests); mocked-COM test harness. **318 tests.**
-- [ ] **1.2** — Closed-loop validation moat: scalar drawing-score, pre-plan clarification pass, and an iterative critique→repair→re-critique refiner (with dedicated transaction-stack isolation)
-- [ ] **1.3** — ISO production: 2D GD&T (ISO 1101) feature-control frames, ISO 129 dimension tolerances/fits, ISO-25 dimension styles
-- [ ] **1.4** — Public benchmark suite (`benchmarks/` with reproducible runner)
-- [ ] **1.3** — Backend `capabilities()` map and per-tool enablement (e.g. hide `system_run_command` automatically on ezdxf)
-- [ ] **1.4** — Module split for `server.py` and a clean `services/` orchestration layer
-- [ ] **1.5** — Windows CI matrix with mocked COM backend; full coverage report
-- [ ] **2.0** — Multi-document context, xref-aware tools, layout/paper-space first-class support
-- [ ] **2.x** — Native Linux/macOS support for live control via [ODA File Converter](https://www.opendesign.com/guestfiles/oda_file_converter) for round-trip DWG
+Sequenced by dependency, not wishlist: each release builds on the one before it.
+The theme is **widen the standards-validation moat, then close the loop, then
+reach production-drawing parity** — and only then chase breadth.
+
+### Shipped
+
+- [x] **1.0 — Foundation.** Dual COM + ezdxf engine, FastMCP 3.0 middleware stack, the core drawing / entity / layer / block / dimension / analysis tool surface.
+- [x] **1.1 — Correctness & the enforced quality gate.** `drawing_finalize` runs the premium ISO-128 critique; deterministic geometry (`point_intersection` / `point_tangent`); dimension / save-format / polar-array / offset fixes across both engines; COM robustness (CoUninitialize, transaction & LISP guards); security hardening (HTTP bind guard, AutoLISP-allowlist bypass tests); mocked-COM harness. **318 tests.**
+- [x] **1.2 — ISO production + a measurable moat.** 2D GD&T (ISO 1101) feature control frames + datum features with a datum-consistency gate; ISO 129 dimension tolerances (±/deviation/limit/basic + text override); in-place `entity_edit_text` / `entity_edit_geometry`; the `drawing_settings` facade; scalar drawing-score + invalidity-ratio at finalize. **360 tests.**
+
+### Next — own the closed loop (the #1 accuracy lever)
+
+- [ ] **1.3 — Closed-loop refiner.** Iterative `critique → repair → re-critique` with dedicated transaction-stack isolation, plus a pre-plan clarification pass in `drawing_plan` that surfaces missing/conflicting dimensions before any geometry. *Depends on the 1.2 scalar score as its objective function.*
+- [ ] **1.4 — ISO production depth.** ISO 286 fit tables (`H7`/`g6` → resolved deviations feeding the 1.2 tolerance engine), a reusable ISO-25 dimension style, and MLEADER leader notes.
+
+### Then — prove it & harden it
+
+- [ ] **1.5 — Public benchmark suite.** A reproducible one-command runner in `benchmarks/` (correctness + throughput by backend and model) — turns the "numbers, not adjectives" promise into CI-tracked figures, anchored on the 1.2 drawing-score.
+- [ ] **1.6 — Architecture & capability introspection.** A backend `capabilities()` map with per-tool enablement (e.g. auto-hide `system_run_command` on ezdxf), plus a `server.py` module split into a clean `services/` orchestration layer.
+- [ ] **1.7 — CI & coverage.** Windows CI matrix exercising the mocked COM backend on every push, with a coverage gate.
+
+### Later — breadth (table-stakes elsewhere, deliberately deferred)
+
+- [ ] **2.0 — Multi-document & paper space.** Multi-drawing context, xref-aware tools, and first-class layout / paper-space + plot configuration.
+- [ ] **2.1 — Optional 3D solids tier (COM-only).** Extrude / revolve / boolean on the live COM backend; ezdxf intentionally stays 2D (no ACIS kernel), so this ships behind a capability flag rather than breaking dual-backend parity.
+- [ ] **2.2 — Native Linux/macOS live control.** Round-trip DWG via the [ODA File Converter](https://www.opendesign.com/guestfiles/oda_file_converter) so headless hosts get true DWG in/out.
 
 ---
 

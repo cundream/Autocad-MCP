@@ -20,6 +20,7 @@ CritiqueFocus = Literal[
     "untrimmed_corner",
     "duplicate_entities",
     "construction_left",
+    "gdt",
 ]
 SnapType = Literal["end", "mid", "center", "quad", "int", "perp", "near"]
 
@@ -30,6 +31,7 @@ ALL_CRITIQUE_FOCUSES: tuple[CritiqueFocus, ...] = (
     "untrimmed_corner",
     "duplicate_entities",
     "construction_left",
+    "gdt",
 )
 
 

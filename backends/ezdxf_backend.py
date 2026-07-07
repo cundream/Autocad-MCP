@@ -722,14 +722,19 @@ class EzdxfBackend(AutoCADBackend):
 
     async def dimension_linear(
         self, x1, y1, x2, y2, dim_x, dim_y, rotation=0.0, layer=None,
+        tol_upper=None, tol_lower=None, tol_mode="none", text_override=None,
     ) -> EntityInfo:
         def _sync():
+            from engineering.tolerances import build_dim_override
+            override, text = build_dim_override(tol_upper, tol_lower, tol_mode, text_override)
             msp = self._msp()
             dim = msp.add_linear_dim(
                 base=(float(dim_x), float(dim_y)),
                 p1=(float(x1), float(y1)),
                 p2=(float(x2), float(y2)),
                 angle=float(rotation),
+                text=text if text is not None else "<>",
+                override=override or None,
             )
             dim.render()
             ent = dim.dimension
@@ -779,8 +784,11 @@ class EzdxfBackend(AutoCADBackend):
 
     async def dimension_radius(
         self, cx, cy, chord_x, chord_y, leader_length=10.0, layer=None,
+        tol_upper=None, tol_lower=None, tol_mode="none", text_override=None,
     ) -> EntityInfo:
         def _sync():
+            from engineering.tolerances import build_dim_override
+            override, text = build_dim_override(tol_upper, tol_lower, tol_mode, text_override)
             msp = self._msp()
             cxf, cyf = float(cx), float(cy)
             radius = math.sqrt((chord_x - cxf) ** 2 + (chord_y - cyf) ** 2)
@@ -793,6 +801,8 @@ class EzdxfBackend(AutoCADBackend):
             dim = msp.add_radius_dim(
                 center=(cxf, cyf),
                 mpoint=mpoint,
+                text=text if text is not None else "<>",
+                override=override or None,
             )
             dim.render()
             ent = dim.dimension
@@ -804,8 +814,11 @@ class EzdxfBackend(AutoCADBackend):
 
     async def dimension_diameter(
         self, x1, y1, x2, y2, leader_length=10.0, layer=None,
+        tol_upper=None, tol_lower=None, tol_mode="none", text_override=None,
     ) -> EntityInfo:
         def _sync():
+            from engineering.tolerances import build_dim_override
+            override, text = build_dim_override(tol_upper, tol_lower, tol_mode, text_override)
             msp = self._msp()
             x1f, y1f, x2f, y2f = float(x1), float(y1), float(x2), float(y2)
             cx = (x1f + x2f) / 2
@@ -820,6 +833,8 @@ class EzdxfBackend(AutoCADBackend):
             dim = msp.add_diameter_dim(
                 center=(cx, cy),
                 mpoint=mpoint,
+                text=text if text is not None else "<>",
+                override=override or None,
             )
             dim.render()
             ent = dim.dimension
@@ -1059,6 +1074,84 @@ class EzdxfBackend(AutoCADBackend):
                 ent.dxf.invisible = not bool(visible)
             self._mark_dirty()
             return {"ok": True, "handle": handle}
+        return await self._async(_sync)
+
+    async def entity_edit_text(
+        self, handle, text=None, height=None, rotation=None,
+    ) -> EntityInfo:
+        def _sync():
+            ent = self._get_entity(handle)
+            et = ent.dxftype()
+            if et == "TEXT":
+                if text is not None:
+                    ent.dxf.text = str(text)
+                if height is not None:
+                    ent.dxf.height = float(height)
+                if rotation is not None:
+                    ent.dxf.rotation = float(rotation)
+            elif et == "MTEXT":
+                if text is not None:
+                    ent.text = str(text)
+                if height is not None:
+                    ent.dxf.char_height = float(height)
+                if rotation is not None:
+                    ent.dxf.rotation = float(rotation)
+            else:
+                raise RuntimeError(
+                    f"entity_edit_text: handle {handle} is {et}, expected TEXT or MTEXT."
+                )
+            self._mark_dirty()
+            return _entity_info_dxf(ent)
+        return await self._async(_sync)
+
+    async def entity_edit_geometry(
+        self, handle, cx=None, cy=None, radius=None,
+        x1=None, y1=None, x2=None, y2=None,
+        start_angle=None, end_angle=None,
+    ) -> EntityInfo:
+        def _sync():
+            ent = self._get_entity(handle)
+            et = ent.dxftype()
+            if et == "CIRCLE":
+                c = ent.dxf.center
+                ent.dxf.center = (
+                    float(cx) if cx is not None else c[0],
+                    float(cy) if cy is not None else c[1],
+                    c[2] if len(c) > 2 else 0.0,
+                )
+                if radius is not None:
+                    ent.dxf.radius = float(radius)
+            elif et == "LINE":
+                s, e = ent.dxf.start, ent.dxf.end
+                ent.dxf.start = (
+                    float(x1) if x1 is not None else s[0],
+                    float(y1) if y1 is not None else s[1],
+                    s[2] if len(s) > 2 else 0.0,
+                )
+                ent.dxf.end = (
+                    float(x2) if x2 is not None else e[0],
+                    float(y2) if y2 is not None else e[1],
+                    e[2] if len(e) > 2 else 0.0,
+                )
+            elif et == "ARC":
+                c = ent.dxf.center
+                ent.dxf.center = (
+                    float(cx) if cx is not None else c[0],
+                    float(cy) if cy is not None else c[1],
+                    c[2] if len(c) > 2 else 0.0,
+                )
+                if radius is not None:
+                    ent.dxf.radius = float(radius)
+                if start_angle is not None:
+                    ent.dxf.start_angle = float(start_angle)
+                if end_angle is not None:
+                    ent.dxf.end_angle = float(end_angle)
+            else:
+                raise RuntimeError(
+                    f"entity_edit_geometry: {et} not supported (use CIRCLE, LINE, or ARC)."
+                )
+            self._mark_dirty()
+            return _entity_info_dxf(ent)
         return await self._async(_sync)
 
     async def entity_list(

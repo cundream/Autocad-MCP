@@ -252,6 +252,36 @@ async def _check_dim_overlap(backend: AutoCADBackend) -> list[Issue]:
     return issues
 
 
+async def _check_gdt(backend: AutoCADBackend) -> list[Issue]:
+    """Every datum referenced by a feature control frame must have a matching
+    datum feature symbol.
+
+    ISO 1101 / ASME Y14.5: a position/orientation/runout FCF that cites datum A
+    is meaningless unless datum A is actually established on the part. The base
+    backend records referenced/defined datum letters as `draw_feature_control_frame`
+    and `draw_datum_feature` run, so this check needs no geometry parsing and is
+    identical on both engines.
+    """
+    referenced = set(getattr(backend, "_gdt_datums_referenced", None) or set())
+    defined = set(getattr(backend, "_gdt_datums_defined", None) or set())
+    missing = sorted(referenced - defined)
+    if not missing:
+        return []
+    return [Issue(
+        severity="error",
+        focus="gdt",
+        message=(
+            f"Feature control frame(s) reference datum(s) {missing} with no "
+            "matching datum feature. Add draw_datum_feature for each datum."
+        ),
+        detail={
+            "missing_datums": missing,
+            "defined": sorted(defined),
+            "referenced": sorted(referenced),
+        },
+    )]
+
+
 _FOCUS_DISPATCH = {
     "iso128": _check_iso128,
     "layer_color": _check_layer_color,
@@ -259,6 +289,7 @@ _FOCUS_DISPATCH = {
     "untrimmed_corner": _check_untrimmed_corner,
     "duplicate_entities": _check_duplicate_entities,
     "construction_left": _check_construction_left,
+    "gdt": _check_gdt,
 }
 
 
