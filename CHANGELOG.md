@@ -15,6 +15,10 @@ _Next: closed-loop refiner (critique→repair→re-critique with transaction-sta
   matching the project name, so hatchling could not infer which files to ship.
   `pyproject.toml` now declares the wheel file selection explicitly
   (`server.py`, `config.py`, `security.py`, `backends/`, `engineering/`). (#2)
+- **`dimension_linear` on the COM backend** — always crashed with
+  `<unknown>.AddDimLinear`: the AutoCAD ActiveX API has no `AddDimLinear`
+  method. Linear dimensions are now created via `AddDimRotated` (identical
+  argument order), with a mocked regression test. (#3)
 
 ## [1.2.0] — 2026-07-07
 

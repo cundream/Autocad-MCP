@@ -824,7 +824,9 @@ class ComBackend(AutoCADBackend):
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
-            dim = mspace.AddDimLinear(
+            # The ActiveX API has no AddDimLinear — rotated linear dims are
+            # created with AddDimRotated (GH issue #3).
+            dim = mspace.AddDimRotated(
                 _apoint(x1, y1), _apoint(x2, y2),
                 _apoint(dim_x, dim_y), deg2rad(rotation),
             )

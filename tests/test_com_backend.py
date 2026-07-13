@@ -212,6 +212,42 @@ def test_safe_send_command_new_handle_detection():
 
 
 # ---------------------------------------------------------------------------
+# dimension_linear — must use AddDimRotated (GH issue #3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dimension_linear_uses_add_dim_rotated():
+    """Regression for GH issue #3: the AutoCAD ActiveX API has no AddDimLinear
+    method — calling it raised ``<unknown>.AddDimLinear``. Linear dimensions
+    must go through AddDimRotated."""
+    backend = ComBackend()
+
+    async def _run_inline(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    backend._run = _run_inline  # bypass the COM executor thread
+
+    mspace = MagicMock()
+    with (
+        patch("backends.com_backend._msp", return_value=mspace),
+        patch("backends.com_backend._apoint", side_effect=lambda *a: tuple(float(v) for v in a)),
+        patch("backends.com_backend._regen"),
+        patch("backends.com_backend._apply_dim_tolerance"),
+        patch("backends.com_backend._entity_info", side_effect=lambda e: e),
+    ):
+        await backend.dimension_linear(0, 0, 100, 0, 50, 20, rotation=0.0)
+
+    mspace.AddDimRotated.assert_called_once()
+    mspace.AddDimLinear.assert_not_called()
+    args = mspace.AddDimRotated.call_args[0]
+    assert args[0] == (0.0, 0.0)      # ext line 1 origin
+    assert args[1] == (100.0, 0.0)    # ext line 2 origin
+    assert args[2] == (50.0, 20.0)    # dim line location
+    assert args[3] == pytest.approx(0.0)  # rotation in radians
+
+
+# ---------------------------------------------------------------------------
 # Live integration — skipped unless AutoCAD is reachable
 # ---------------------------------------------------------------------------
 
