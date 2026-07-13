@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Next: closed-loop refiner (critique→repair→re-critique with transaction-stack isolation), pre-plan clarification pass, ISO 286 fit-table lookup (H7/g6 → deviations), and a local-VLM visual judge._
 
+### Fixed
+- **Install from source** — `pip install -e ".[full]"` failed at
+  "Preparing editable metadata" because the flat layout has no directory
+  matching the project name, so hatchling could not infer which files to ship.
+  `pyproject.toml` now declares the wheel file selection explicitly
+  (`server.py`, `config.py`, `security.py`, `backends/`, `engineering/`). (#2)
+
 ## [1.2.0] — 2026-07-07
 
 Production-ISO parity + a measurable quality moat. **360 tests, ruff-clean.** Tool count: 111 → 116.
