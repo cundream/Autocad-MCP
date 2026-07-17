@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0",
+  "reviewed_at": "2026-07-17",
+  "title": "AutoCAD MCP source-reviewed capability benchmark",
+  "evidence_boundary": "source_review_not_shared_live_run",
+  "methodology": "Public source, documented behavior, and locally recorded test evidence scored with a fixed 100-point rubric. Repository stars and raw tool counts do not score points.",
+  "rubric": [
+    {"category": "Functional CAD coverage", "weight": 25},
+    {"category": "Correctness and delivery", "weight": 20},
+    {"category": "Backends and platforms", "weight": 15},
+    {"category": "Engineering production", "weight": 15},
+    {"category": "Tests and maintenance", "weight": 15},
+    {"category": "Security and operations", "weight": 10}
+  ],
+  "projects": [
+    {
+      "repository": "U-C4N/Autocad-MCP",
+      "url": "https://github.com/U-C4N/Autocad-MCP",
+      "reviewed_version": "1.3.0 working tree",
+      "score": 93,
+      "evidence_grade": "A",
+      "note": "Dual COM/ezdxf backends, standards-aware quality gates, deterministic geometry, closed-loop refinement, and auditable delivery."
+    },
+    {
+      "repository": "varavista/autocad-mcp",
+      "url": "https://github.com/varavista/autocad-mcp",
+      "reviewed_version": "2026-07-16 snapshot",
+      "score": 84,
+      "evidence_grade": "A",
+      "note": "Broad backend and CAD coverage with layout and xref depth."
+    },
+    {
+      "repository": "beiming183-cloud/AutoCAD-MCP",
+      "url": "https://github.com/beiming183-cloud/AutoCAD-MCP",
+      "reviewed_version": "2026-07-16 snapshot",
+      "score": 83,
+      "evidence_grade": "A",
+      "note": "Atomic operations, postconditions, 3D tools, and verified artifact delivery."
+    },
+    {
+      "repository": "AnCode666/multiCAD-mcp",
+      "url": "https://github.com/AnCode666/multiCAD-mcp",
+      "reviewed_version": "2026-07-16 snapshot",
+      "score": 73,
+      "evidence_grade": "A",
+      "note": "TABLE/MLEADER, data exchange, multi-document workflows, and alternative CAD support."
+    },
+    {
+      "repository": "puran-water/autocad-mcp",
+      "url": "https://github.com/puran-water/autocad-mcp",
+      "reviewed_version": "2026-07-16 snapshot",
+      "score": 70,
+      "evidence_grade": "A",
+      "note": "AutoCAD LT file IPC, ezdxf, P&ID workflows, leaders, and screenshots."
+    },
+    {
+      "repository": "NCO-1986/AutoCAD_mcp",
+      "url": "https://github.com/NCO-1986/AutoCAD_mcp",
+      "reviewed_version": "2026-07-16 snapshot",
+      "score": 68,
+      "evidence_grade": "B",
+      "note": ".NET main-thread integration with a broad live AutoCAD operation surface."
+    }
+  ]
+}

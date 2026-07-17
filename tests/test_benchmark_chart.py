@@ -1,9 +1,9 @@
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import pytest
-
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = ROOT / "benchmarks" / "source_review.json"
@@ -64,3 +64,4 @@ def test_render_chart_writes_readable_svg(tmp_path: Path) -> None:
     assert "Source-reviewed capability benchmark" in svg
     assert "U-C4N/Autocad-MCP" in svg
     assert "Shared live-run results are not implied" in svg
+    assert all(line == line.rstrip() for line in svg.splitlines())
