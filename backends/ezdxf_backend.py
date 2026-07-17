@@ -13,6 +13,8 @@ import logging
 import math
 import os
 import tempfile
+import uuid
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
 
@@ -21,8 +23,10 @@ import config
 from .base import (
     AutoCADBackend,
     BlockInfo,
+    CapabilityMap,
     DrawingInfo,
     EntityInfo,
+    FeatureCapability,
     LayerInfo,
     normalize_lineweight,
     shoelace_area,
@@ -253,7 +257,8 @@ class EzdxfBackend(AutoCADBackend):
         self._doc_path: str | None = None
         self._dirty: bool = False
         self._current_layer: str = "0"
-        self._undo_stack: list[Path] = []  # temp-file paths to DXF snapshots
+        self._undo_stack: list[Path] = []  # user-facing undo history
+        self._transaction_stack: list[Path] = []  # isolated transaction snapshots
         self._connected = False
         self._lock = asyncio.Lock()
 
@@ -265,21 +270,49 @@ class EzdxfBackend(AutoCADBackend):
     def is_connected(self) -> bool:
         return self._connected
 
+    def capabilities(self) -> CapabilityMap:
+        render_available = find_spec("matplotlib") is not None
+        render_capability = (
+            FeatureCapability(True, "rendered")
+            if render_available
+            else FeatureCapability(False, reason="optional_dependency_missing:matplotlib")
+        )
+        return CapabilityMap(
+            backend="ezdxf",
+            features={
+                "drawing_2d": FeatureCapability(True, "native"),
+                "dxf": FeatureCapability(True, "native"),
+                "pdf": render_capability,
+                "png": render_capability,
+                "transactions": FeatureCapability(True, "snapshot"),
+                "table": FeatureCapability(True, "composite"),
+                "mleader": FeatureCapability(True, "composite"),
+                "preflight": FeatureCapability(True, "shared"),
+                "refiner": FeatureCapability(True, "shared"),
+                "delivery": FeatureCapability(True, "shared"),
+                "paper_space": FeatureCapability(False, reason="planned_1.4"),
+                "solid_3d": FeatureCapability(False, reason="planned_1.5"),
+                "lisp": FeatureCapability(False, reason="live_com_only"),
+            },
+        )
+
     async def connect(self) -> None:
         self._connected = True
         log.info("ezdxf backend ready")
 
     async def disconnect(self) -> None:
         self._cleanup_undo_stack()
+        self._reset_document_state()
         self._connected = False
 
     def _cleanup_undo_stack(self):
-        while self._undo_stack:
-            p = self._undo_stack.pop()
-            try:
-                p.unlink()
-            except OSError:
-                pass
+        for stack in (self._undo_stack, self._transaction_stack):
+            while stack:
+                p = stack.pop()
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
 
     def _require_doc(self):
         if self._doc is None:
@@ -347,6 +380,7 @@ class EzdxfBackend(AutoCADBackend):
             self._doc_path = None
             self._dirty = False
             self._current_layer = "0"
+            self._reset_document_state()
             return {"ok": True, "name": "untitled.dxf"}
         return await self._async(_sync)
 
@@ -371,6 +405,7 @@ class EzdxfBackend(AutoCADBackend):
             except Exception as exc:
                 log.debug("reading $CLAYER from header: %s", exc)
                 self._current_layer = "0"
+            self._reset_document_state()
             return {"ok": True, "name": Path(path).name, "path": path}
         return await self._async(_sync)
 
@@ -511,6 +546,7 @@ class EzdxfBackend(AutoCADBackend):
             self._doc = None
             self._doc_path = None
             self._dirty = False
+            self._reset_document_state()
             return {"ok": True}
         return await self._async(_sync)
 
@@ -643,6 +679,160 @@ class EzdxfBackend(AutoCADBackend):
             self._apply_attrs(ent, layer, color)
             self._mark_dirty()
             return _entity_info_dxf(ent)
+        return await self._async(_sync)
+
+    async def entity_create_table(
+        self,
+        x,
+        y,
+        rows,
+        headers=None,
+        column_widths=None,
+        row_height=7.0,
+        text_height=2.5,
+        title=None,
+        layer="TEXT",
+    ) -> EntityInfo:
+        from engineering.annotation import prepare_table_layout
+
+        layout = prepare_table_layout(
+            rows, headers, column_widths, row_height, text_height, title
+        )
+
+        def _sync():
+            msp = self._msp()
+            children = []
+            x0, y0 = float(x), float(y)
+            x_positions = [x0]
+            for width in layout.column_widths:
+                x_positions.append(x_positions[-1] + width)
+
+            for row_index in range(layout.row_count + 1):
+                yy = y0 - row_index * layout.row_height
+                line = msp.add_line((x0, yy), (x0 + layout.width, yy))
+                self._apply_attrs(line, layer, None)
+                children.append(line)
+            for xx in x_positions:
+                line = msp.add_line((xx, y0), (xx, y0 - layout.height))
+                self._apply_attrs(line, layer, None)
+                children.append(line)
+
+            padding = min(1.0, layout.row_height * 0.15)
+            for row_index, row in enumerate(layout.cells):
+                for column_index, value in enumerate(row):
+                    if not value:
+                        continue
+                    text_entity = msp.add_mtext(
+                        value,
+                        dxfattribs={
+                            "char_height": layout.text_height,
+                            "width": max(1.0, layout.column_widths[column_index] - 2 * padding),
+                        },
+                    )
+                    text_entity.dxf.insert = (
+                        x_positions[column_index] + padding,
+                        y0 - row_index * layout.row_height - padding,
+                        0.0,
+                    )
+                    self._apply_attrs(text_entity, layer, None)
+                    children.append(text_entity)
+
+            self._mark_dirty()
+            child_handles = [str(entity.dxf.handle) for entity in children]
+            group_id = f"table:{uuid.uuid4().hex}"
+            return EntityInfo(
+                handle=child_handles[0],
+                type="TABLE",
+                layer=layer,
+                color=256,
+                linetype="ByLayer",
+                visible=True,
+                properties={
+                    "representation": "composite",
+                    "logical_group_id": group_id,
+                    "child_handles": child_handles,
+                    "rows": layout.row_count,
+                    "columns": layout.column_count,
+                    "bounds": {
+                        "min": [x0, y0 - layout.height],
+                        "max": [x0 + layout.width, y0],
+                    },
+                },
+            )
+
+        return await self._async(_sync)
+
+    async def leader_create_mleader(
+        self,
+        points,
+        text,
+        text_height=2.5,
+        landing_gap=1.0,
+        arrow_size=2.5,
+        layer="DIM",
+    ) -> EntityInfo:
+        from engineering.annotation import validate_mleader
+
+        normalized = validate_mleader(points, text)
+        if text_height <= 0 or landing_gap < 0 or arrow_size <= 0:
+            raise RuntimeError(
+                "leader_create_mleader: text_height/arrow_size must be positive and landing_gap non-negative"
+            )
+
+        def _sync():
+            msp = self._msp()
+            path = msp.add_lwpolyline(normalized)
+            self._apply_attrs(path, layer, None)
+
+            (x0, y0), (x1, y1) = normalized[0], normalized[1]
+            dx, dy = x1 - x0, y1 - y0
+            length = math.hypot(dx, dy)
+            if length <= 1e-12:
+                raise RuntimeError("leader_create_mleader: first two points must be distinct")
+            ux, uy = dx / length, dy / length
+            px, py = -uy, ux
+            size = float(arrow_size)
+            arrow = msp.add_lwpolyline(
+                [
+                    (x0, y0),
+                    (x0 + ux * size + px * size * 0.35, y0 + uy * size + py * size * 0.35),
+                    (x0 + ux * size - px * size * 0.35, y0 + uy * size - py * size * 0.35),
+                ],
+                close=True,
+            )
+            self._apply_attrs(arrow, layer, None)
+
+            tx, ty = normalized[-1]
+            label = msp.add_mtext(
+                str(text),
+                dxfattribs={"char_height": float(text_height), "width": 100.0},
+            )
+            label.dxf.insert = (tx + float(landing_gap), ty, 0.0)
+            self._apply_attrs(label, layer, None)
+            self._mark_dirty()
+
+            children = [path, arrow, label]
+            child_handles = [str(entity.dxf.handle) for entity in children]
+            return EntityInfo(
+                handle=child_handles[0],
+                type="MLEADER",
+                layer=layer,
+                color=256,
+                linetype="ByLayer",
+                visible=True,
+                properties={
+                    "representation": "composite",
+                    "logical_group_id": f"mleader:{uuid.uuid4().hex}",
+                    "child_handles": child_handles,
+                    "points": [list(point) for point in normalized],
+                    "text": str(text),
+                    "bounds": {
+                        "min": [min(point[0] for point in normalized), min(point[1] for point in normalized)],
+                        "max": [max(point[0] for point in normalized), max(point[1] for point in normalized)],
+                    },
+                },
+            )
+
         return await self._async(_sync)
 
     async def entity_create_hatch(
@@ -1632,10 +1822,10 @@ class EzdxfBackend(AutoCADBackend):
                 except OSError:
                     pass
                 raise
-            self._undo_stack.append(Path(tmp_path))
+            self._transaction_stack.append(Path(tmp_path))
             max_stack = config.settings.max_undo_stack
-            while len(self._undo_stack) > max_stack:
-                old = self._undo_stack.pop(0)
+            while len(self._transaction_stack) > max_stack:
+                old = self._transaction_stack.pop(0)
                 try:
                     old.unlink()
                 except OSError:
@@ -1647,9 +1837,9 @@ class EzdxfBackend(AutoCADBackend):
         # NEW-undo-1: guard the _undo_stack read+pop with self._lock (via _async)
         # instead of touching it outside any lock.
         def _sync():
-            if not self._undo_stack:
+            if not self._transaction_stack:
                 return {"ok": False, "error": "No active transaction"}
-            p = self._undo_stack.pop()
+            p = self._transaction_stack.pop()
             try:
                 p.unlink()
             except OSError:
@@ -1661,11 +1851,12 @@ class EzdxfBackend(AutoCADBackend):
         # NEW-undo-1: read+mutate _undo_stack under self._lock (via _async) so the
         # empty-check and the pop/readfile are serialized with other sync work.
         def _sync():
-            if not self._undo_stack:
+            if not self._transaction_stack:
                 return {"ok": False, "error": "No active transaction to rollback"}
-            p = self._undo_stack.pop()
+            p = self._transaction_stack.pop()
             try:
                 self._doc = ezdxf.readfile(str(p))
+                self._current_layer = str(self._doc.header.get("$CLAYER", "0"))
                 self._dirty = True
             finally:
                 try:
@@ -1685,7 +1876,7 @@ class EzdxfBackend(AutoCADBackend):
             "has_document": has_doc,
             "document_path": self._doc_path,
             "unsaved_changes": self._dirty,
-            "transaction_depth": len(self._undo_stack),
+            "transaction_depth": len(self._transaction_stack),
             "capabilities": [
                 "file_read_write", "dxf_export", "pdf_export",
                 "entity_creation", "layer_management", "blocks",

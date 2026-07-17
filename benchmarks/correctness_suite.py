@@ -224,11 +224,18 @@ CHECKS = {
 
 
 def main():
+    if len(sys.argv) == 1 or sys.argv[1] in {"-h", "--help"}:
+        print("usage: correctness_suite.py <check_name> | --list")
+        print("Run one deterministic correctness check, or list available checks.")
+        return
     if len(sys.argv) == 2 and sys.argv[1] == "--list":
         for k, (_fn, cat) in CHECKS.items():
             print(f"{k}\t{cat}")
         return
     name = sys.argv[1]
+    if name not in CHECKS:
+        print(f"Unknown check: {name}", file=sys.stderr)
+        raise SystemExit(2)
     fn, _cat = CHECKS[name]
     ok = asyncio.run(fn())
     print("PASS" if ok else "FAIL")

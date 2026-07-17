@@ -11,6 +11,7 @@ Strategy:
 from __future__ import annotations
 
 import sys
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +19,34 @@ import pytest
 
 from backends.base import normalize_lineweight
 from backends.com_backend import ComBackend
+
+
+@pytest.mark.asyncio
+async def test_active_document_switch_clears_com_document_state(monkeypatch):
+    backend = ComBackend()
+    documents = SimpleNamespace(Count=1)
+    app = SimpleNamespace(
+        Documents=documents,
+        ActiveDocument=SimpleNamespace(Name="First.dwg", FullName="C:/First.dwg"),
+    )
+
+    async def run_inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(backend, "_run", run_inline)
+    monkeypatch.setattr("backends.com_backend._acad_app", lambda: app)
+
+    await backend._ensure_document_state()
+    backend._plan_spec = object()
+    backend._preflight_result = object()
+    backend._gdt_datums_defined = {"A"}
+    app.ActiveDocument = SimpleNamespace(Name="Second.dwg", FullName="C:/Second.dwg")
+
+    await backend._ensure_document_state()
+
+    assert backend._plan_spec is None
+    assert backend._preflight_result is None
+    assert backend._gdt_datums_defined == set()
 
 # ---------------------------------------------------------------------------
 # normalize_lineweight — parametrized table

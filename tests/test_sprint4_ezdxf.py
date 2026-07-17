@@ -113,11 +113,12 @@ async def test_rollback_without_transaction_returns_error(backend):
 async def test_transaction_begin_commit_roundtrip(backend):
     begin = await backend.transaction_begin()
     assert begin["ok"] is True
-    assert len(backend._undo_stack) == 1
+    assert len(backend._transaction_stack) == 1
+    assert len(backend._undo_stack) == 0
 
     commit = await backend.transaction_commit()
     assert commit["ok"] is True
-    assert len(backend._undo_stack) == 0
+    assert len(backend._transaction_stack) == 0
 
 
 async def test_transaction_rollback_restores_snapshot(backend):
@@ -129,7 +130,7 @@ async def test_transaction_rollback_restores_snapshot(backend):
 
     res = await backend.transaction_rollback()
     assert res["ok"] is True
-    assert len(backend._undo_stack) == 0
+    assert len(backend._transaction_stack) == 0
 
     # The line is gone after rollback.
     listed = await backend.entity_list(type_filter="LINE")

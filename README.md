@@ -13,7 +13,7 @@ query exact geometry, apply engineering standards, refine quality issues inside
 transactions, and deliver hashed artifacts with validation evidence.
 
 > **v1.3 release snapshot:** 122 tools · 6 resources · 5 prompt templates ·
-> 406 collected tests. Runtime discovery through `system_about` is authoritative.
+> 415 collected tests. Runtime discovery through `system_about` is authoritative.
 
 ## Start in 60 seconds
 

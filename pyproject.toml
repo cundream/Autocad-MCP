@@ -1,6 +1,6 @@
 [project]
 name = "autocad-mcp-pro"
-version = "1.2.0"
+version = "1.3.0"
 description = "Production-grade AutoCAD MCP server — COM API + ezdxf dual engine"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,7 +25,7 @@ full = [
 ]
 
 [project.scripts]
-autocad-mcp = "server:mcp"
+autocad-mcp = "server:main"
 
 [tool.uv]
 dev-dependencies = [
@@ -42,7 +42,7 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 # Flat layout: no directory matches the project name, so hatchling needs an
 # explicit file selection (GH issue #2). server.py imports config + security.
-only-include = ["server.py", "config.py", "security.py", "backends", "engineering"]
+only-include = ["server.py", "config.py", "security.py", "version.py", "backends", "engineering"]
 
 [tool.ruff]
 line-length = 100

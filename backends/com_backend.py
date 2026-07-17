@@ -21,8 +21,10 @@ import config
 from .base import (
     AutoCADBackend,
     BlockInfo,
+    CapabilityMap,
     DrawingInfo,
     EntityInfo,
+    FeatureCapability,
     LayerInfo,
     deg2rad,
     normalize_lineweight,
@@ -431,6 +433,7 @@ class ComBackend(AutoCADBackend):
         self._executor: ThreadPoolExecutor | None = None
         self._connected = False
         self._transaction_active = False
+        self._document_scope_key: tuple[str, str] | None = None
 
     @property
     def name(self) -> str:
@@ -439,6 +442,26 @@ class ComBackend(AutoCADBackend):
     @property
     def is_connected(self) -> bool:
         return self._connected
+
+    def capabilities(self) -> CapabilityMap:
+        return CapabilityMap(
+            backend="com",
+            features={
+                "drawing_2d": FeatureCapability(True, "native"),
+                "dxf": FeatureCapability(True, "native"),
+                "pdf": FeatureCapability(True, "native"),
+                "png": FeatureCapability(True, "native"),
+                "transactions": FeatureCapability(True, "undo_mark"),
+                "table": FeatureCapability(True, "native"),
+                "mleader": FeatureCapability(True, "native"),
+                "preflight": FeatureCapability(True, "shared"),
+                "refiner": FeatureCapability(True, "shared"),
+                "delivery": FeatureCapability(True, "shared"),
+                "paper_space": FeatureCapability(False, reason="planned_1.4"),
+                "solid_3d": FeatureCapability(False, reason="planned_1.5"),
+                "lisp": FeatureCapability(True, "sanitized"),
+            },
+        )
 
     async def connect(self) -> None:
         if not _COM_IMPORTS_OK:
@@ -460,7 +483,27 @@ class ComBackend(AutoCADBackend):
                 pass
             self._executor.shutdown(wait=False)
             self._executor = None
+        self._document_scope_key = None
+        self._transaction_active = False
+        self._reset_document_state()
         self._connected = False
+
+    async def _ensure_document_state(self) -> None:
+        """Reset drawing-scoped metadata when AutoCAD's active document changes."""
+
+        def _sync():
+            app = _acad_app()
+            if app.Documents.Count == 0:
+                key = None
+            else:
+                doc = app.ActiveDocument
+                key = (str(doc.Name), str(doc.FullName))
+            if key != self._document_scope_key:
+                self._document_scope_key = key
+                self._transaction_active = False
+                self._reset_document_state()
+
+        await self._run(_sync)
 
     def _sync_test_connection(self):
         """Verify AutoCAD is reachable (runs in COM thread)."""
@@ -572,14 +615,18 @@ class ComBackend(AutoCADBackend):
             else:
                 doc = app.Documents.Add()
             return {"ok": True, "name": doc.Name}
-        return await self._run(_sync)
+        result = await self._run(_sync)
+        await self._ensure_document_state()
+        return result
 
     async def drawing_open(self, path: str) -> dict:
         def _sync():
             app = _acad_app()
             doc = app.Documents.Open(path)
             return {"ok": True, "name": doc.Name, "path": doc.FullName}
-        return await self._run(_sync)
+        result = await self._run(_sync)
+        await self._ensure_document_state()
+        return result
 
     async def drawing_save(self, path: str | None = None) -> dict:
         def _sync():
@@ -633,7 +680,9 @@ class ComBackend(AutoCADBackend):
             doc = _acad_doc()
             doc.Close(save)
             return {"ok": True}
-        return await self._run(_sync)
+        result = await self._run(_sync)
+        await self._ensure_document_state()
+        return result
 
     async def drawing_undo(self) -> dict:
         def _sync():
@@ -727,6 +776,113 @@ class ComBackend(AutoCADBackend):
             _apply_entity_attrs(mt, layer, color, None)
             _regen()
             return _entity_info(mt)
+        return await self._run(_sync)
+
+    async def entity_create_table(
+        self,
+        x,
+        y,
+        rows,
+        headers=None,
+        column_widths=None,
+        row_height=7.0,
+        text_height=2.5,
+        title=None,
+        layer="TEXT",
+    ) -> EntityInfo:
+        from engineering.annotation import prepare_table_layout
+
+        layout = prepare_table_layout(
+            rows, headers, column_widths, row_height, text_height, title
+        )
+
+        def _sync():
+            mspace = _msp()
+            table = mspace.AddTable(
+                _apoint(x, y),
+                layout.row_count,
+                layout.column_count,
+                layout.row_height,
+                layout.column_widths[0],
+            )
+            for column, width in enumerate(layout.column_widths):
+                table.SetColumnWidth(column, width)
+            for row_index, row in enumerate(layout.cells):
+                table.SetRowHeight(row_index, layout.row_height)
+                for column_index, value in enumerate(row):
+                    table.SetText(row_index, column_index, value)
+            try:
+                table.TextHeight = layout.text_height
+            except Exception as exc:
+                log.debug("setting table TextHeight failed: %s", exc)
+            _apply_entity_attrs(table, layer, None, None)
+            _regen()
+            info = _entity_info(table)
+            info.type = "TABLE"
+            info.layer = layer
+            info.properties.update(
+                {
+                    "representation": "native",
+                    "logical_group_id": f"table:{uuid.uuid4().hex}",
+                    "child_handles": [info.handle],
+                    "rows": layout.row_count,
+                    "columns": layout.column_count,
+                    "bounds": {
+                        "min": [float(x), float(y) - layout.height],
+                        "max": [float(x) + layout.width, float(y)],
+                    },
+                }
+            )
+            return info
+
+        return await self._run(_sync)
+
+    async def leader_create_mleader(
+        self,
+        points,
+        text,
+        text_height=2.5,
+        landing_gap=1.0,
+        arrow_size=2.5,
+        layer="DIM",
+    ) -> EntityInfo:
+        from engineering.annotation import validate_mleader
+
+        normalized = validate_mleader(points, text)
+        if text_height <= 0 or landing_gap < 0 or arrow_size <= 0:
+            raise RuntimeError(
+                "leader_create_mleader: text_height/arrow_size must be positive and landing_gap non-negative"
+            )
+
+        def _sync():
+            flat = []
+            for px, py in normalized:
+                flat.extend([px, py, 0.0])
+            leader = _msp().AddMLeader(_av(flat), 0)
+            leader.TextString = str(text)
+            leader.TextHeight = float(text_height)
+            leader.LandingGap = float(landing_gap)
+            leader.ArrowheadSize = float(arrow_size)
+            _apply_entity_attrs(leader, layer, None, None)
+            _regen()
+            info = _entity_info(leader)
+            info.type = "MLEADER"
+            info.layer = layer
+            info.properties.update(
+                {
+                    "representation": "native",
+                    "logical_group_id": f"mleader:{uuid.uuid4().hex}",
+                    "child_handles": [info.handle],
+                    "points": [list(point) for point in normalized],
+                    "text": str(text),
+                    "bounds": {
+                        "min": [min(p[0] for p in normalized), min(p[1] for p in normalized)],
+                        "max": [max(p[0] for p in normalized), max(p[1] for p in normalized)],
+                    },
+                }
+            )
+            return info
+
         return await self._run(_sync)
 
     async def entity_create_hatch(
@@ -1649,6 +1805,9 @@ class ComBackend(AutoCADBackend):
     # ── transactions ──────────────────────────────────────────────────────────
 
     async def transaction_begin(self) -> dict:
+        if self._transaction_active:
+            return {"ok": False, "error": "A transaction is already active"}
+
         def _sync():
             doc = _acad_doc()
             doc.StartUndoMark()

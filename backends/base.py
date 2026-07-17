@@ -71,6 +71,32 @@ class DrawingInfo:
     backend: str = ""
 
 
+@dataclass(frozen=True)
+class FeatureCapability:
+    supported: bool
+    mode: str | None = None
+    reason: str | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "supported": self.supported,
+            "mode": self.mode,
+            "reason": self.reason,
+        }
+
+
+@dataclass(frozen=True)
+class CapabilityMap:
+    backend: str
+    features: dict[str, FeatureCapability]
+
+    def to_dict(self) -> dict:
+        return {
+            "backend": self.backend,
+            "features": {name: value.to_dict() for name, value in self.features.items()},
+        }
+
+
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
@@ -125,6 +151,9 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def disconnect(self) -> None: ...
+
+    @abstractmethod
+    def capabilities(self) -> CapabilityMap: ...
 
     # ── drawing management ───────────────────────────────────────────────────
     @abstractmethod
@@ -203,6 +232,31 @@ class AutoCADBackend(ABC):
         self, text: str, x: float, y: float,
         width: float = 100.0, height: float = 2.5, rotation: float = 0.0,
         layer: str | None = None, color: int | None = None,
+    ) -> EntityInfo: ...
+
+    @abstractmethod
+    async def entity_create_table(
+        self,
+        x: float,
+        y: float,
+        rows: list[list[str]],
+        headers: list[str] | None = None,
+        column_widths: list[float] | None = None,
+        row_height: float = 7.0,
+        text_height: float = 2.5,
+        title: str | None = None,
+        layer: str = "TEXT",
+    ) -> EntityInfo: ...
+
+    @abstractmethod
+    async def leader_create_mleader(
+        self,
+        points: list[list[float]],
+        text: str,
+        text_height: float = 2.5,
+        landing_gap: float = 1.0,
+        arrow_size: float = 2.5,
+        layer: str = "DIM",
     ) -> EntityInfo: ...
 
     @abstractmethod
@@ -594,6 +648,46 @@ class AutoCADBackend(ABC):
     # has no cross-backend equivalent among the standard entity_create_* tools.
 
     _plan_spec: PlanSpec | None = None
+    _preflight_result: Any = None
+
+    def _reset_document_state(self) -> None:
+        """Clear metadata that is valid only for the current drawing."""
+        self._plan_spec = None
+        self._preflight_result = None
+        self._gdt_datums_defined = set()
+        self._gdt_datums_referenced = set()
+
+    async def _ensure_document_state(self) -> None:
+        """Allow live backends to detect an out-of-band document switch."""
+        return None
+
+    async def drawing_preflight(
+        self,
+        intent: str,
+        requirements: dict | None = None,
+        sheet_size: SheetSize = "A3",
+        scale: float = 1.0,
+        layer_set_id: LayerSetId = "mech",
+        view_count: int = 1,
+        dim_style: DimStyle = "chain",
+        allow_assumptions: bool = False,
+    ):
+        from engineering.preflight import preflight_drawing
+
+        await self._ensure_document_state()
+
+        result = preflight_drawing(
+            intent,
+            requirements,
+            sheet_size,
+            scale,
+            layer_set_id,
+            view_count,
+            dim_style,
+            allow_assumptions=allow_assumptions,
+        )
+        self._preflight_result = result
+        return result
 
     async def drawing_plan(
         self, intent: str,
@@ -603,6 +697,8 @@ class AutoCADBackend(ABC):
         view_count: int = 1,
         dim_style: DimStyle = "chain",
         notes: list[str] | None = None,
+        requirements: dict | None = None,
+        spec_hash: str | None = None,
     ) -> PlanSpec:
         """Commit a drawing intent before any geometry is created.
         Returns a PlanSpec and stores it on the backend; read it back with
@@ -610,6 +706,47 @@ class AutoCADBackend(ABC):
         replays this plan was untrue — critique runs geometric checks, not a
         plan diff.)"""
         from engineering.plan_spec import PlanSpec
+
+        await self._ensure_document_state()
+        preflight_status = "skipped"
+        normalized_plan: dict[str, Any] | None = None
+        if spec_hash is not None:
+            from engineering.preflight import preflight_drawing
+
+            preflight = getattr(self, "_preflight_result", None)
+            if preflight is None or preflight.spec_hash != spec_hash:
+                raise RuntimeError("drawing_plan: spec_hash does not match the latest preflight.")
+            if not preflight.ready:
+                raise RuntimeError(
+                    "drawing_plan: preflight is not ready; resolve questions/conflicts first."
+                )
+            candidate = preflight_drawing(
+                intent,
+                requirements
+                if requirements is not None
+                else preflight.normalized_spec["requirements"],
+                sheet_size,
+                scale,
+                layer_set_id,
+                view_count,
+                dim_style,
+            )
+            if candidate.spec_hash != spec_hash:
+                raise RuntimeError(
+                    "drawing_plan: supplied fields do not match the hashed preflight spec."
+                )
+            normalized_plan = preflight.normalized_spec
+            preflight_status = "ready"
+
+        if normalized_plan is not None:
+            intent = normalized_plan["intent"]
+            sheet_size = normalized_plan["sheet_size"]
+            scale = normalized_plan["scale"]
+            layer_set_id = normalized_plan["layer_set_id"]
+            view_count = normalized_plan["view_count"]
+            dim_style = normalized_plan["dim_style"]
+            requirements = normalized_plan["requirements"]
+
         plan = PlanSpec(
             intent=str(intent),
             sheet_size=sheet_size,
@@ -618,6 +755,9 @@ class AutoCADBackend(ABC):
             view_count=int(view_count),
             dim_style=dim_style,
             notes=list(notes) if notes else [],
+            requirements=dict(requirements or {}),
+            spec_hash=spec_hash,
+            preflight_status=preflight_status,
         )
         self._plan_spec = plan
         return plan
@@ -629,6 +769,8 @@ class AutoCADBackend(ABC):
         `drawing_finalize`. `focus=None` runs all checks. (N8: this does NOT
         replay the committed PlanSpec — it inspects the live drawing geometry.)"""
         from engineering.critique import run_critique
+
+        await self._ensure_document_state()
         return await run_critique(self, focus)
 
     def get_plan_spec(self) -> dict | None:

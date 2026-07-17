@@ -10,6 +10,7 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import math
@@ -31,6 +32,7 @@ from pydantic import Field
 
 import config
 from security import sanitize_command, sanitize_lisp, validate_path
+from version import __version__
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -695,6 +697,49 @@ async def entity_create_mtext(
     """Create a multi-line text entity (MTEXT) with word-wrap at the specified width."""
     await ctx.debug(f"Creating mtext at ({x},{y}) w={width}")
     result = await _backend(ctx).entity_create_mtext(text, x, y, width, height, rotation, layer, color)
+    return _dc(result)
+
+
+@mcp.tool(
+    annotations={"title": "Create Table", "readOnlyHint": False},
+    tags={"entity", "create", "annotation", "table"},
+)
+async def entity_create_table(
+    x: Annotated[float, "Top-left X coordinate"],
+    y: Annotated[float, "Top-left Y coordinate"],
+    rows: Annotated[list[list[str]], "Data rows; every row must have the same length"],
+    headers: Annotated[list[str] | None, "Optional column header row"] = None,
+    column_widths: Annotated[list[float] | None, "Optional explicit widths per column"] = None,
+    row_height: Annotated[float, Field(default=7.0, gt=0)] = 7.0,
+    text_height: Annotated[float, Field(default=2.5, gt=0)] = 2.5,
+    title: Annotated[str | None, "Optional title row"] = None,
+    layer: Annotated[str, "Target layer"] = "TEXT",
+    ctx: Context = None,
+) -> dict:
+    """Create a native COM table or an explicitly-labelled ezdxf composite table."""
+    result = await _backend(ctx).entity_create_table(
+        x, y, rows, headers, column_widths, row_height, text_height, title, layer
+    )
+    return _dc(result)
+
+
+@mcp.tool(
+    annotations={"title": "Create Multileader", "readOnlyHint": False},
+    tags={"entity", "create", "annotation", "leader"},
+)
+async def leader_create_mleader(
+    points: Annotated[list[list[float]], "Leader vertices as [x, y] pairs"],
+    text: Annotated[str, "Leader annotation text"],
+    text_height: Annotated[float, Field(default=2.5, gt=0)] = 2.5,
+    landing_gap: Annotated[float, Field(default=1.0, ge=0)] = 1.0,
+    arrow_size: Annotated[float, Field(default=2.5, gt=0)] = 2.5,
+    layer: Annotated[str, "Target layer"] = "DIM",
+    ctx: Context = None,
+) -> dict:
+    """Create a native COM MLeader or an explicitly-labelled ezdxf composite."""
+    result = await _backend(ctx).leader_create_mleader(
+        points, text, text_height, landing_gap, arrow_size, layer
+    )
     return _dc(result)
 
 
@@ -2231,6 +2276,15 @@ async def system_status(ctx: Context = None) -> dict:
 
 
 @mcp.tool(
+    annotations={"title": "Backend Capabilities", "readOnlyHint": True},
+    tags={"system", "query"},
+)
+async def system_capabilities(ctx: Context = None) -> dict:
+    """Return machine-readable support modes for the active backend."""
+    return _backend(ctx).capabilities().to_dict()
+
+
+@mcp.tool(
     annotations={"title": "Get System Variable", "readOnlyHint": True},
     tags={"system"},
 )
@@ -2335,11 +2389,12 @@ async def system_about(ctx: Context = None) -> dict:
     tool_count = await _registered_tool_count()
     out = {
         "name": "AutoCAD MCP Pro",
-        "version": "1.0.0",
+        "version": __version__,
         "description": "Production-grade AutoCAD MCP server with dual COM+ezdxf engine",
         "active_backend": backend_name,
         "tool_groups": await _tool_groups(),
         "unsafe_mode": config.settings.dangerous_commands_enabled,
+        "capabilities": b.capabilities().to_dict()["features"] if b else {},
     }
     # R20: omit total_tools when unknown rather than reporting a fake -1.
     if tool_count is not None:
@@ -2601,12 +2656,100 @@ async def drawing_finalize(
     return payload
 
 
+@mcp.tool(
+    annotations={
+        "title": "Drawing: Deliver Auditable Bundle",
+        "destructiveHint": True,
+    },
+    tags={"engineering", "drawing", "validation", "delivery"},
+)
+async def drawing_deliver(
+    output_dir: Annotated[
+        str,
+        Field(description="Output directory for drawing artifacts and manifest.json."),
+    ],
+    formats: Annotated[
+        list[str] | None,
+        Field(default=None, description="Requested formats: dxf, pdf, png."),
+    ] = None,
+    min_score: Annotated[
+        float,
+        Field(default=95.0, ge=0.0, le=100.0, description="Minimum accepted quality score."),
+    ] = 95.0,
+    strict_critique: Annotated[
+        bool,
+        Field(default=True, description="Block delivery on every non-info critique issue."),
+    ] = True,
+    expected: Annotated[
+        dict | None,
+        Field(default=None, description="Optional validator expectations for the drawing."),
+    ] = None,
+    ctx: Context = None,
+) -> dict:
+    """Create a hashed, validated delivery bundle and verify DXF save/reopen parity.
+
+    The result status is ``success``, ``failed_validation`` or ``failed_export``.
+    Failure intentionally keeps all generated artifacts for diagnosis.
+    """
+    from engineering import deliver_drawing
+
+    destination = validate_path(output_dir, allow_write=True)
+    result = await deliver_drawing(
+        _backend(ctx),
+        destination,
+        formats=formats,
+        min_score=min_score,
+        strict_critique=strict_critique,
+        expected=expected,
+    )
+    return result.to_dict()
+
+
 # ---------------------------------------------------------------------------
 # ── SECTION 13: Premium Drafting Meta-Tools (5x quality multiplier) ─────────
 # ---------------------------------------------------------------------------
 # These tools wrap the entity primitives in a quality-first workflow:
 #   plan → snap-aware geometry → critique → finalize.
 # See `.claude/skills/autocad-mcp-premium/` for the full discipline.
+
+@mcp.tool(
+    annotations={"title": "Drawing: Preflight", "readOnlyHint": True},
+    tags={"premium", "planning", "validation"},
+)
+async def drawing_preflight(
+    intent: Annotated[str, "One-line description of what this drawing represents."],
+    requirements: Annotated[
+        dict | None,
+        "Units, part_type, dimensions, tolerance_policy and optional constraints.",
+    ] = None,
+    sheet_size: Annotated[
+        str, Field(default="A3", description="A4 / A3 / A2 / A1 / A0.")
+    ] = "A3",
+    scale: Annotated[float, Field(default=1.0, gt=0)] = 1.0,
+    layer_set_id: Annotated[
+        str, Field(default="mech", description="mech / pid / iso13567.")
+    ] = "mech",
+    view_count: Annotated[int, Field(default=1, ge=1)] = 1,
+    dim_style: Annotated[
+        str, Field(default="chain", description="chain / baseline / ordinate / mixed.")
+    ] = "chain",
+    allow_assumptions: Annotated[
+        bool, "Allow documented defaults for units and tolerance policy."
+    ] = False,
+    ctx: Context = None,
+) -> dict:
+    """Validate and normalize requirements before committing a drawing plan."""
+    result = await _backend(ctx).drawing_preflight(
+        intent,
+        requirements,
+        sheet_size,
+        scale,
+        layer_set_id,
+        view_count,
+        dim_style,
+        allow_assumptions,
+    )
+    return result.to_dict()
 
 @mcp.tool(
     annotations={"title": "Drawing: Plan (commit intent before drawing)",
@@ -2625,6 +2768,10 @@ async def drawing_plan(
     dim_style: Annotated[str, Field(default="chain",
         description="Default dimensioning style: chain / baseline / ordinate / mixed.")] = "chain",
     notes: Annotated[list[str] | None, "Free-form constraint notes."] = None,
+    requirements: Annotated[dict | None, "Normalized preflight requirements."] = None,
+    spec_hash: Annotated[
+        str | None, "Hash returned by the latest ready drawing_preflight."
+    ] = None,
     ctx: Context = None,
 ) -> dict:
     """Commit a PlanSpec before any geometry is created.
@@ -2635,6 +2782,7 @@ async def drawing_plan(
     """
     plan = await _backend(ctx).drawing_plan(
         intent, sheet_size, scale, layer_set_id, view_count, dim_style, notes,
+        requirements, spec_hash,
     )
     return _dc(plan)
 
@@ -2656,6 +2804,34 @@ async def drawing_critique(
     """
     issues = await _backend(ctx).drawing_critique(focus)
     return [_dc(i) for i in issues]
+
+
+@mcp.tool(
+    annotations={"title": "Drawing: Refine", "destructiveHint": True},
+    tags={"premium", "validation", "modify"},
+)
+async def drawing_refine(
+    max_rounds: Annotated[int, Field(default=3, ge=1, le=3)] = 3,
+    min_score: Annotated[float, Field(default=95.0, ge=0, le=100)] = 95.0,
+    focus: Annotated[list[str] | None, "Critique focuses to repair; None runs all."] = None,
+    allowed_repairs: Annotated[
+        list[str] | None, "Optional allowlist of repair focus names."
+    ] = None,
+    dry_run: Annotated[bool, "Return the repair plan without modifying the drawing."] = False,
+    ctx: Context = None,
+) -> dict:
+    """Run a bounded, transaction-safe critique/repair/re-critique loop."""
+    from engineering.refiner import refine_drawing
+
+    result = await refine_drawing(
+        _backend(ctx),
+        max_rounds=max_rounds,
+        min_score=min_score,
+        focus=focus,
+        allowed_repairs=allowed_repairs,
+        dry_run=dry_run,
+    )
+    return result.to_dict()
 
 
 @mcp.tool(
@@ -3260,24 +3436,24 @@ async def _guarded_run_async(transport=None, *args, **kwargs):
 mcp.run_async = _guarded_run_async
 
 
-if __name__ == "__main__":
-    transport = "stdio"
-    host = "127.0.0.1"
-    port = 8000
+def main() -> None:
+    """Run the MCP server from the installed ``autocad-mcp`` command."""
+    parser = argparse.ArgumentParser(description="Run the AutoCAD MCP server")
+    parser.add_argument("--transport", default="stdio")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8000)
+    args = parser.parse_args()
 
-    args = sys.argv[1:]
-    if "--transport" in args:
-        idx = args.index("--transport")
-        transport = args[idx + 1]
-    if "--port" in args:
-        idx = args.index("--port")
-        port = int(args[idx + 1])
-    if "--host" in args:
-        idx = args.index("--host")
-        host = args[idx + 1]
-
-    if transport == "stdio":
+    if args.transport == "stdio":
         mcp.run()
     else:
-        _validate_http_bind(host)
-        mcp.run(transport=transport, host=host, port=port)
+        _validate_http_bind(args.host)
+        mcp.run(
+            transport=args.transport,
+            host=args.host,
+            port=args.port,
+        )
+
+
+if __name__ == "__main__":
+    main()

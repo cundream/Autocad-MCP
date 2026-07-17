@@ -7,7 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Next: closed-loop refiner (critique→repair→re-critique with transaction-stack isolation), pre-plan clarification pass, ISO 286 fit-table lookup (H7/g6 → deviations), and a local-VLM visual judge._
+_Next: capability-group schema routing, paper-space/layout production depth, and ISO 286 fit-table lookup._
+
+## [1.3.0] — 2026-07-17
+
+Closed-loop quality, production annotation, and auditable delivery. **415 tests,
+Ruff lint-clean. Tool count: 116 → 122.**
+
+### Added
+
+- **`drawing_preflight`** normalizes production requirements, reports missing or
+  conflicting facts before geometry starts, and emits a deterministic SHA-256
+  spec hash that `drawing_plan` can enforce.
+- **`drawing_refine`** runs a bounded `critique → repair → re-critique` loop.
+  Each repair round is isolated in its own transaction and rolls back if score
+  regresses or hard-error count increases. Construction, duplicate, layer
+  color/lineweight, untrimmed endpoint, and dimension-overlap repairs are
+  supported; undefined GD&T datums remain explicitly manual.
+- **TABLE and MLEADER semantics** via `entity_create_table` and
+  `leader_create_mleader`: native ActiveX entities on COM and deterministic,
+  portable LINE/LWPOLYLINE/MTEXT composites on ezdxf. Composite creation
+  returns child handles and a logical ID; after DXF reopen, inspection uses the
+  persisted standard child entities rather than a native TABLE/MLEADER object.
+- **`system_capabilities`** and shared typed backend capability maps distinguish
+  native, rendered, composite, snapshot, shared, and unsupported features.
+- **`drawing_deliver`** creates DXF/PDF/PNG bundles, runs validator + critique,
+  re-opens the canonical DXF for entity/type/layer/bounds parity, hashes every
+  artifact, and writes `manifest.json` plus `validation.json`. Failed gates keep
+  artifacts for diagnosis but never report delivery success.
+- **Benchmark v2**: ten fixed vendor-neutral tasks, an adapter interface, an
+  ezdxf/COM reference adapter, cooperative per-task timeout reporting,
+  fixed-matrix coverage-aware scoring, machine-readable statuses,
+  runtime/environment/capability metadata, and artifact SHA-256.
+
+### Changed
+
+- ezdxf transaction snapshots are isolated from user-facing undo history, so a
+  refiner rollback cannot consume an unrelated undo entry.
+- Package metadata is the canonical version source used by `system_about` and
+  delivery manifests.
+- `benchmarks/correctness_suite.py` now shows usage for argless/`--help` calls
+  instead of raising a traceback.
 
 ### Fixed
 - **Install from source** — `pip install -e ".[full]"` failed at

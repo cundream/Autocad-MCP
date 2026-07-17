@@ -50,6 +50,9 @@ class PlanSpec:
     view_count: int = 1
     dim_style: DimStyle = "chain"
     notes: list[str] = field(default_factory=list)
+    requirements: dict = field(default_factory=dict)
+    spec_hash: str | None = None
+    preflight_status: Literal["ready", "skipped"] = "skipped"
 
     def to_dict(self) -> dict:
         return {
@@ -60,6 +63,9 @@ class PlanSpec:
             "view_count": self.view_count,
             "dim_style": self.dim_style,
             "notes": list(self.notes),
+            "requirements": dict(self.requirements),
+            "spec_hash": self.spec_hash,
+            "preflight_status": self.preflight_status,
         }
 
 

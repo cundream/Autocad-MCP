@@ -1,5 +1,12 @@
 """Deterministic engineering CAD layer for AutoCAD MCP Pro."""
 
+from .annotation import TableLayout, prepare_table_layout, validate_mleader
+from .delivery import (
+    DeliveryResult,
+    compare_drawing_snapshots,
+    deliver_drawing,
+    drawing_snapshot,
+)
 from .gear import (
     draw_gear_section_aa,
     draw_helical_gear_front_view,
@@ -31,11 +38,25 @@ from .plan_spec import (
     SheetSize,
     SnapType,
 )
+from .preflight import (
+    PreflightConflict,
+    PreflightQuestion,
+    PreflightResult,
+    preflight_drawing,
+)
+from .refiner import RefineResult, RefineRound, RepairAction, refine_drawing
 from .titleblock import TitleBlockMetadata, apply_iso_a3_titleblock
 from .validator import DrawingValidator, ValidationFinding, ValidationResult
 
 __all__ = [
     "draw_helical_gear_front_view",
+    "DeliveryResult",
+    "compare_drawing_snapshots",
+    "deliver_drawing",
+    "drawing_snapshot",
+    "TableLayout",
+    "prepare_table_layout",
+    "validate_mleader",
     "draw_spur_gear_front_view",
     "draw_gear_section_aa",
     "generate_full_gear_outline",
@@ -63,4 +84,12 @@ __all__ = [
     "SnapType",
     "ALL_CRITIQUE_FOCUSES",
     "ISO_128_LINEWEIGHTS_MM",
+    "PreflightConflict",
+    "PreflightQuestion",
+    "PreflightResult",
+    "preflight_drawing",
+    "RefineResult",
+    "RefineRound",
+    "RepairAction",
+    "refine_drawing",
 ]

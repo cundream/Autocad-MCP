@@ -29,8 +29,12 @@ dates, evidence grades, project URLs, and the boundary are stored with the data.
 The v2 runner separates runtime evidence from the source-review rubric. Every
 adapter receives the same ten tasks and produces the same closed result enum:
 `pass`, `partial`, `unsupported`, `fail`, `timeout`, or `not_run`. A timeout is
-isolated to its task. Reports include commit SHA, Python/platform details,
-backend capability claims, durations, and hashes for returned artifacts.
+reported per task. Execution is in-process, so adapters that delegate blocking
+work must provide cancellation-safe task implementations or be wrapped by an
+external process supervisor. Reports include commit SHA, Python/platform
+details, backend capability claims, durations, coverage, and hashes for returned
+artifacts. Unsupported tasks remain in the fixed-matrix denominator with score
+zero, preventing partial implementations from receiving an inflated score.
 
 ```bash
 python -m benchmarks.run_competitors --list
