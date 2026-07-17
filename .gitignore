@@ -21,8 +21,12 @@ env/
 *.swo
 *~
 
-# Testing
+# Testing and tooling
 .pytest_cache/
+.ruff_cache/
+.codex-pytest-temp/
+.release-*/
+.tdd-*/
 .coverage
 coverage.xml
 htmlcov/
@@ -35,7 +39,10 @@ htmlcov/
 Thumbs.db
 desktop.ini
 
-# Project specific
+# Generated CAD and benchmark output
+out/
+benchmarks/results/*
+!benchmarks/results/.gitkeep
 *.dxf
 *.dwg
 *.bak
