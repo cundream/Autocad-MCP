@@ -1,5 +1,48 @@
 # Benchmarks
 
+## Two evidence layers
+
+This repository publishes two deliberately separate forms of evidence:
+
+1. **Source-reviewed capability benchmark.** Six named AutoCAD MCP projects are
+   scored with a fixed 100-point rubric covering CAD breadth, correctness and
+   delivery, backend reach, engineering production, tests, and security. The
+   dated data lives in [`source_review.json`](source_review.json), and the README
+   graphic is generated—not hand-edited—from that file.
+2. **Fixed-task runtime benchmark.** Adapters execute the same ten tasks and
+   return `pass`, `partial`, `unsupported`, `fail`, `timeout`, or `not_run`.
+   AutoCAD MCP Pro currently has the reference adapter; other projects do not
+   receive runtime scores until an adapter actually runs their public interface.
+
+Regenerate the source-review chart:
+
+```bash
+pip install -e ".[pdf]"
+python -m benchmarks.render_chart
+```
+
+The source-review chart is not presented as a shared live AutoCAD run. Review
+dates, evidence grades, project URLs, and the boundary are stored with the data.
+
+## Fixed-task runtime runner v2
+
+The v2 runner separates runtime evidence from the source-review rubric. Every
+adapter receives the same ten tasks and produces the same closed result enum:
+`pass`, `partial`, `unsupported`, `fail`, `timeout`, or `not_run`. A timeout is
+isolated to its task. Reports include commit SHA, Python/platform details,
+backend capability claims, durations, and hashes for returned artifacts.
+
+```bash
+python -m benchmarks.run_competitors --list
+python -m benchmarks.run_competitors --server autocad-mcp-pro --backend ezdxf --json
+python -m benchmarks.run_competitors --task table_mleader --task auditable_delivery --json
+```
+
+The release-machine v1.3 ezdxf self-check is **10/10 (100.0)**. It is not a
+competitor ranking. Cross-project scores become comparable only when another
+adapter runs this exact task matrix; repository stars and raw tool counts do not
+contribute to the score. Adapter registration lives in `competitors.yaml`.
+
 ## Correctness A/B suite
 
 `correctness_suite.py` is a set of deterministic, headless (ezdxf-backend) checks
