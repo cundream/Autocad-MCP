@@ -86,6 +86,9 @@ python -m benchmarks.render_chart
 python -m benchmarks.run_competitors --server autocad-mcp-pro --backend ezdxf --json
 ```
 
+The v1.3 ezdxf reference run records **10/10 tasks (100.0)**. It is a
+self-check, not a competitor ranking.
+
 Cross-project runtime scores will be published only after equivalent adapters
 execute the same task contract. The complete rubric, caveats, version A/B suite,
 and reproduction commands live in [`benchmarks/`](benchmarks/README.md).
