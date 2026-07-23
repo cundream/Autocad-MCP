@@ -1,10 +1,12 @@
 # Benchmarks
 
+![Public AutoCAD MCP capability leaderboard](../docs/assets/autocad-mcp-benchmark.svg)
+
 ## Two evidence layers
 
 This repository publishes two deliberately separate forms of evidence:
 
-1. **Source-reviewed capability benchmark.** Six named AutoCAD MCP projects are
+1. **Source-reviewed capability benchmark.** Nine named AutoCAD MCP projects are
    scored with a fixed 100-point rubric covering CAD breadth, correctness and
    delivery, backend reach, engineering production, tests, and security. The
    dated data lives in [`source_review.json`](source_review.json), and the README

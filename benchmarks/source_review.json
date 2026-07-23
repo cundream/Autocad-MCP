@@ -1,6 +1,6 @@
 {
   "schema_version": "1.0",
-  "reviewed_at": "2026-07-17",
+  "reviewed_at": "2026-07-23",
   "title": "AutoCAD MCP source-reviewed capability benchmark",
   "evidence_boundary": "source_review_not_shared_live_run",
   "methodology": "Public source, documented behavior, and locally recorded test evidence scored with a fixed 100-point rubric. Repository stars and raw tool counts do not score points.",
@@ -16,10 +16,10 @@
     {
       "repository": "U-C4N/Autocad-MCP",
       "url": "https://github.com/U-C4N/Autocad-MCP",
-      "reviewed_version": "1.3.0 working tree",
-      "score": 93,
+      "reviewed_version": "1.4.0 (PyPI release)",
+      "score": 95,
       "evidence_grade": "A",
-      "note": "Dual COM/ezdxf backends, standards-aware quality gates, deterministic geometry, closed-loop refinement, and auditable delivery."
+      "note": "Dual COM/ezdxf backends, paper space, ISO 129/286/1101 annotation, closed-loop quality gates, auditable delivery; v1.4 adds CI matrix incl. Windows, PyPI packaging, and a version A/B correctness gate (21/21, 0 regressions)."
     },
     {
       "repository": "varavista/autocad-mcp",
@@ -60,6 +60,30 @@
       "score": 68,
       "evidence_grade": "B",
       "note": ".NET main-thread integration with a broad live AutoCAD operation surface."
+    },
+    {
+      "repository": "LokmenoWer/best-cad-mcp",
+      "url": "https://github.com/LokmenoWer/best-cad-mcp",
+      "reviewed_version": "v1.5.0 (2026-07-23 snapshot)",
+      "score": 74,
+      "evidence_grade": "B",
+      "note": "Very broad live-AutoCAD operation surface with CAD-IR understanding, visual grounding, and guarded CADPlan dry-run/rollback; COM-only (no headless lane), no standards-based generators or toleranced annotation."
+    },
+    {
+      "repository": "daobataotie/CAD-MCP",
+      "url": "https://github.com/daobataotie/CAD-MCP",
+      "reviewed_version": "2026-07-23 snapshot",
+      "score": 35,
+      "evidence_grade": "B",
+      "note": "Multi-CAD reach (AutoCAD/GstarCAD/ZWCAD) over Windows COM with a small basic drawing surface; no verification, transactions, tests, or delivery evidence documented."
+    },
+    {
+      "repository": "zh19980811/Easy-MCP-AutoCad",
+      "url": "https://github.com/zh19980811/Easy-MCP-AutoCad",
+      "reviewed_version": "2026-07-23 snapshot",
+      "score": 30,
+      "evidence_grade": "C",
+      "note": "Basic COM drawing tool set with SQLite persistence; reviewed from the documented tool surface only, execution path not exercised locally."
     }
   ]
 }
