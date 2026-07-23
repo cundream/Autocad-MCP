@@ -3,6 +3,8 @@
 Production-grade AutoCAD automation for AI agents—live through COM on Windows,
 or headless through ezdxf on any platform.
 
+[![CI](https://github.com/U-C4N/Autocad-MCP/actions/workflows/ci.yml/badge.svg)](https://github.com/U-C4N/Autocad-MCP/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/autocad-mcp-pro?color=1f6feb)](https://pypi.org/project/autocad-mcp-pro/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-3fb950)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-1f6feb?logo=python&logoColor=white)](pyproject.toml)
 [![FastMCP 3](https://img.shields.io/badge/MCP-FastMCP%203-8957e5)](https://github.com/jlowin/fastmcp)
@@ -12,8 +14,8 @@ One typed MCP contract controls two execution engines. Build and edit drawings,
 query exact geometry, apply engineering standards, refine quality issues inside
 transactions, and deliver hashed artifacts with validation evidence.
 
-> **v1.3 release snapshot:** 122 tools · 6 resources · 5 prompt templates ·
-> 415 collected tests. Runtime discovery through `system_about` is authoritative.
+> **v1.4 release snapshot:** 131 tools · 6 resources · 5 prompt templates ·
+> 474 collected tests. Runtime discovery through `system_about` is authoritative.
 
 ## Start in 60 seconds
 
@@ -86,12 +88,32 @@ python -m benchmarks.render_chart
 python -m benchmarks.run_competitors --server autocad-mcp-pro --backend ezdxf --json
 ```
 
-The v1.3 ezdxf reference run records **10/10 tasks (100.0)**. It is a
-self-check, not a competitor ranking.
+### Live-run lane — same harness, pinned competitors
 
-Cross-project runtime scores will be published only after equivalent adapters
-execute the same task contract. The complete rubric, caveats, version A/B suite,
-and reproduction commands live in [`benchmarks/`](benchmarks/README.md).
+![Live benchmark](docs/assets/autocad-mcp-livebench.svg)
+
+| Server | Pinned commit | Score | Pass | Coverage |
+|---|---|---:|---:|---:|
+| **autocad-mcp-pro** (this repo) | working tree | **100.0** | 10/10 | 100% |
+| [beiming183-cloud/AutoCAD-MCP](https://github.com/beiming183-cloud/AutoCAD-MCP) | `11f7c47` | 50.0 | 5/10 | 50% |
+| [puran-water/autocad-mcp](https://github.com/puran-water/autocad-mcp) | `95476a3` | 45.0 | 4/10 | 50% |
+
+Same ten fixed tasks, same runner, headless ezdxf lane. Competitors are driven
+**black-box over MCP stdio** using their own documented tool contracts at the
+pinned commit, and every geometry claim is verified by re-opening the exported
+DXF with ezdxf in the harness — no competitor self-reporting. `unsupported`
+scores zero in the fixed matrix; per-task statuses with exact reasons are
+committed under [`benchmarks/results/published/`](benchmarks/results/published/).
+File-IPC (live AutoCAD) lanes run locally, not in CI.
+
+```bash
+python -m benchmarks.run_competitors --server puran-water-autocad-mcp --backend ezdxf
+python -m benchmarks.run_competitors --server beiming183-autocad-mcp --backend ezdxf
+python -m benchmarks.render_live_chart
+```
+
+The complete rubric, caveats, version A/B suite, and reproduction commands live
+in [`benchmarks/`](benchmarks/README.md).
 
 ## Why this architecture holds up
 
@@ -346,3 +368,6 @@ Built from production drawing work, then made model-agnostic through MCP.
 ## License
 
 [MIT](LICENSE)
+
+<!-- MCP registry ownership marker; must equal the "name" in server.json. -->
+mcp-name: io.github.u-c4n/autocad-mcp

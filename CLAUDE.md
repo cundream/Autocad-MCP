@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AutoCAD MCP Pro is a FastMCP 3.0 server that exposes ~110 tools, 5 resources, and 5 prompt templates for AutoCAD automation. (The exact tool count is reported dynamically by `system_status` / `system_about` — never hardcode it.) It runs with a dual-engine architecture: a live COM backend (Windows/AutoCAD required) and a headless ezdxf backend (works anywhere).
+AutoCAD MCP Pro is a FastMCP 3.0 server that exposes ~131 tools, 6 resources, and 5 prompt templates for AutoCAD automation. (The exact tool count is reported dynamically by `system_status` / `system_about` — never hardcode it.) It runs with a dual-engine architecture: a live COM backend (Windows/AutoCAD required) and a headless ezdxf backend (works anywhere).
 
 ## Running the Server
 
@@ -69,23 +69,29 @@ The `mcp` FastMCP instance is configured with:
 - **Middleware stack**: `ErrorHandlingMiddleware` → `AuditMiddleware` (custom timing/audit log) → `TimingMiddleware` → `LoggingMiddleware`
 - **`_backend(ctx)`** helper: retrieves the backend from lifespan context, raises `ToolError` if not ready
 
-Tools are organized into 12 sections:
-1. Drawing Management (11 tools): `drawing_*`
-2. Entity Creation (13 tools): `entity_create_*`
+Tools are organized into sections (counts are indicative — `system_about` is authoritative):
+1. Drawing Management (12 tools): `drawing_*` (includes `drawing_redo`)
+2. Entity Creation (14 tools): `entity_create_*` (includes `entity_create_table`, `leader_create_mleader`)
 3. Dimensions (5 tools): `dimension_*`
-4. Entity Modification (12 tools): `entity_move/copy/rotate/scale/mirror/offset/delete/array_*`, plus in-place `entity_edit_text` (TEXT/MTEXT content/height/rotation) and `entity_edit_geometry` (CIRCLE/LINE/ARC — center/radius/endpoints/angles), both handle-preserving
-5. Entity Query (3 tools): `entity_get`, `entity_list`, `entity_delete_many`
-6. Layer Management (12 tools + 2 linetype_*): `layer_*`, `linetype_list`, `linetype_load`
+4. Entity Modification (16 tools): `entity_move/copy/rotate/scale/mirror/offset/delete/array_*`, corner ops (`entity_trim/extend/fillet/chamfer`), plus in-place `entity_edit_text` (TEXT/MTEXT content/height/rotation) and `entity_edit_geometry` (CIRCLE/LINE/ARC — center/radius/endpoints/angles), both handle-preserving
+5. Entity Query (4 tools): `entity_get`, `entity_list`, `entity_delete_many`, `selection_get`
+6. Layer Management (14 tools incl. 2 linetype_*): `layer_*`, `linetype_list`, `linetype_load`
 7. Block Operations (7 tools): `block_*`
-8. Analysis & Query (8 tools): `analysis_*`
-9. View & Screenshot (5 tools — includes `view_zoom_and_screenshot`): `view_*`
+8. Analysis & Query (8 tools): `analysis_*` — plus Batch (2), Templates (2), Validation (1)
+9. View & Screenshot (4 tools — includes `view_zoom_and_screenshot`): `view_*`
 10. Transactions (3 tools): `transaction_begin/commit/rollback`
-11. System (7 tools): `system_status/get_variable/set_variable/run_command/run_lisp/about`, plus `drawing_settings` (friendly units/scale/precision/osnap facade over system variables)
-12. Engineering / Deterministic CAD (7 tools): `gear_draw_*`, `keyway_draw_*`, `titleblock_apply_iso_a3`, `drawing_finalize`
-13. Premium meta-tools: `drawing_plan`, `drawing_critique`, `point_from_snap/intersection/tangent`, `construction_*`, `drawing_apply_iso_layers`, `dimension_auto`, `entity_select_smart`
+11. System (8 tools): `system_status/get_variable/set_variable/run_command/run_lisp/about/capabilities`, plus `drawing_settings` (friendly units/scale/precision/osnap facade over system variables)
+12. Engineering / Deterministic CAD (8 tools): `gear_draw_*`, `keyway_draw_*`, `titleblock_apply_iso_a3`, `drawing_finalize`
+13. Premium meta-tools (12): `drawing_preflight`, `drawing_plan`, `drawing_critique`, `drawing_refine`, `drawing_deliver`, `point_from_snap/intersection/tangent`, `construction_*`, `drawing_apply_iso_layers`, `dimension_auto`, `entity_select_smart`
 14. GD&T (ISO 1101 / ASME Y14.5): `gd_frame` (feature control frames), `datum_feature` — enforced by the `gdt` critique focus
+15. Layouts & Paper Space (4 tools): `layout_list/create/set_current`, `viewport_create` (scaled model viewports); `drawing_export_pdf` takes an optional `layout` param. Viewport model-content projection is COM-only (`viewport_render` capability).
+16. 3D Solids (5 tools, opt-in via `ENABLE_3D=true`, COM only): `solid_box/cylinder/extrude/revolve/boolean` — hidden from discovery and rejected while disabled; ezdxf reports `solid_3d` as unsupported (no headless ACIS).
+
+**Tool profiles:** `TOOL_PROFILE=lean|core|full` (default `full`) controls the advertised surface — `lean` ≈ 46 curated drafting tools, `core` hides raw escape hatches (`system_run_command/lisp`, low-level variables, long-tail tools). Applied in the lifespan; reported by `system_about`.
 
 **ISO 129 tolerances:** `dimension_linear` / `dimension_radius` / `dimension_diameter` take `tol_upper` / `tol_lower` / `tol_mode` (`symmetric` ± / `deviation` +a/-b / `limit` / `basic`) and `text_override` (e.g. `⌀20 H7`). Prefer these over hand-drawn tolerance text.
+
+**ISO 286 fits:** the same dimension tools take `fit="H7"` (mutually exclusive with `tol_*`) — deviations are resolved from authored ISO 286 tables (`engineering/fits.py`; shafts d/e/f/g/h/js/k/m/n/p, holes D/E/F/G/H/JS, sizes 1–500 mm) against the measured nominal and the fit code is appended to the dimension text.
 
 **Drawing score:** `drawing_finalize` returns `payload["score"]` — a 0-100 scalar + `invalidity_ratio` + A-F `grade` over the validator + critique union. Use it as the objective quality metric.
 
@@ -110,8 +116,7 @@ Tools are organized into 12 sections:
 
 ### Premium Drawing Rules
 
-These rules are non-negotiable for production engineering output. The full
-discipline + workflow templates live in `.claude/skills/autocad-mcp-premium/`.
+These rules are non-negotiable for production engineering output.
 
 1. **Plan before draw**: Call `drawing_plan(intent, scale, sheet)` *before* any
    `entity_create_*`. The returned PlanSpec is held by the backend and replayed

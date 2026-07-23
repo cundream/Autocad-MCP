@@ -7,7 +7,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Next: capability-group schema routing, paper-space/layout production depth, and ISO 286 fit-table lookup._
+_Next (1.5): screenshot overlay + handle grounding v1, ezdxf redo (forward
+snapshots), COM `block_create_from_entities`, ISO 286 transition/interference
+hole letters (delta rule), titleblock on paper-space layouts._
+
+## [1.4.0] — 2026-07-23
+
+Release infrastructure + the roadmap features shipped together. **474 tests,
+Ruff lint- and format-clean. Tool count: 122 → 131.**
+
+### Added
+
+- **CI restored and extended** (`.github/workflows/ci.yml`): ruff lint/format,
+  Linux test matrix (3.11/3.12) with coverage, a **Windows leg** running the
+  mocked-COM suite on the platform the COM backend targets, a package job
+  (build + twine check + clean-venv wheel smoke incl. `autocad-mcp --help`),
+  a Docker build/smoke job, and MCP `server.json` schema validation.
+- **Release pipeline** (`.github/workflows/release.yml`): tag `v*` → test gate
+  → tag/version match check → build → **PyPI trusted publishing** (OIDC) →
+  GitHub Release with artifacts.
+- **MCP registry manifest** `server.json` (schema 2025-12-11, name
+  `io.github.u-c4n/autocad-mcp`, PyPI package) plus the `mcp-name` ownership
+  marker in the README and an `autocad-mcp-pro` console alias so
+  `uvx autocad-mcp-pro` works directly.
+- **Live competitor benchmark lane**: a generic black-box MCP-stdio driver
+  (`benchmarks/adapters/mcp_stdio.py`), reproducible pinned checkouts
+  (`benchmarks/competitors_env.py`), and adapters for
+  **puran-water/autocad-mcp** and **beiming183-cloud/AutoCAD-MCP** that run
+  the same 10-task matrix over stdio with harness-side DXF verification.
+  Published results (`benchmarks/results/published/`): autocad-mcp-pro
+  **100.0**, beiming183 **50.0**, puran-water **45.0**; rendered to
+  `docs/assets/autocad-mcp-livebench.svg`. Weekly/dispatch CI workflow.
+- **Tool profiles** (`TOOL_PROFILE=lean|core|full`): capability-aware
+  discovery applied in the server lifespan — `lean` is a curated ~46-tool
+  drafting core, `core` hides raw escape hatches and long-tail tools, `full`
+  (default) exposes everything. Reported by `system_about`.
+- **Paper space / layouts**: `layout_list`, `layout_create`,
+  `layout_set_current`, `viewport_create` (scaled model viewports) on both
+  backends, and `drawing_export_pdf(layout=...)` for plotting a layout.
+  Headless limitation is explicit: viewport model-content projection is
+  COM-only (`viewport_render` capability).
+- **ISO 286 limits and fits** (`engineering/fits.py`): authored table data
+  (IT4–IT11, sizes 1–500 mm; shafts d/e/f/g/h/js/k/m/n/p, holes D/E/F/G/H/JS)
+  with `fit_lookup("H7", 20.0)`; `dimension_linear/radius/diameter` gained a
+  `fit` parameter that resolves deviations from the measured nominal and
+  appends the fit code to the dimension text. Out-of-scope letters raise a
+  clear error naming the supported set.
+- **Opt-in native 3D solids** (`ENABLE_3D=true`, COM only): `solid_box`,
+  `solid_cylinder`, `solid_extrude`, `solid_revolve`, `solid_boolean`.
+  Hidden from discovery and rejected while disabled; ezdxf reports the honest
+  `solid_3d` capability boundary (ACIS cannot be generated headlessly).
+- **Release-consistency test suite** (`tests/test_release_consistency.py`):
+  pyproject ↔ version.py ↔ CHANGELOG ↔ README snapshot ↔ server.json versions,
+  README tool/resource/prompt counts vs live registrations, per-section header
+  counts vs decorators, Dockerfile COPY vs wheel `only-include`, and the
+  README `mcp-name` marker.
+
+### Changed
+
+- **pyproject metadata completed** for PyPI: SPDX license + license file,
+  authors, keywords, classifiers, project URLs.
+- **`build_dim_override`**: `deviation`/`limit` modes now pass DIMTM signed
+  (`-lower`) instead of `abs()` — double-positive ISO 286 fits (e.g. p6
+  +0.035/+0.022) render correctly; the legacy "positive magnitude = minus
+  deviation" contract is unchanged.
+- **Capability maps**: `paper_space` is now native on both backends;
+  new `viewport_render` feature (COM native / ezdxf unsupported);
+  `solid_3d` reflects the ENABLE_3D gate on COM.
+- README rebuilt around the live-run benchmark lane; CI/PyPI badges added;
+  `ruff format` applied repo-wide and enforced in CI.
+
+### Fixed
+
+- **Dockerfile shipped a broken image**: `engineering/` and `version.py` were
+  never copied, so engineering tools failed in containers. Both are now
+  copied (plus README/LICENSE for metadata) and the healthcheck imports the
+  engineering package.
+- `server.py` section-header tool counts and the CLAUDE.md inventory were
+  stale (six sections drifted); both now match the live surface and are
+  locked by tests. Removed the reference to the non-existent
+  `.claude/skills/` directory.
 
 ## [1.3.0] — 2026-07-17
 
