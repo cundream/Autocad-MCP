@@ -68,9 +68,7 @@ def render_chart(data: dict[str, Any], output: Path) -> None:
     projects = sorted(data["projects"], key=lambda item: item["score"])
     total = len(projects)
     # rank 1 = highest score (drawn topmost by barh with ascending sort)
-    labels = [
-        f"{total - index}. {item['repository']}" for index, item in enumerate(projects)
-    ]
+    labels = [f"{total - index}. {item['repository']}" for index, item in enumerate(projects)]
     scores = [item["score"] for item in projects]
     grades = [item["evidence_grade"] for item in projects]
     # leaderboard palette by rank (rank 1 first), canvas/LLM-benchmark style
@@ -85,10 +83,7 @@ def render_chart(data: dict[str, Any], output: Path) -> None:
         "#f0876e",  # 8 salmon
         "#8957e5",  # 9 purple
     ]
-    colors = [
-        rank_palette[(total - 1 - index) % len(rank_palette)]
-        for index in range(total)
-    ]
+    colors = [rank_palette[(total - 1 - index) % len(rank_palette)] for index in range(total)]
 
     fig, ax = plt.subplots(figsize=(12, 0.62 * total + 2.4), constrained_layout=True)
     fig.patch.set_facecolor("#0d1117")
