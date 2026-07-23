@@ -50,12 +50,17 @@ def build_dim_override(
     elif mode == "deviation":
         if tol_upper is None or tol_lower is None:
             raise ValueError("tol_mode='deviation' requires tol_upper and tol_lower.")
+        # DIMTM convention: the displayed lower deviation is -DIMTM. Callers
+        # pass tol_lower as the magnitude of the minus deviation (0.01 means
+        # -0.01, legacy contract); a *negative* tol_lower expresses a plus
+        # lower deviation, which double-positive ISO 286 fits (e.g. p6
+        # +0.035/+0.022) require.
         override.update(
             {
                 "dimtol": 1,
                 "dimlim": 0,
                 "dimtp": float(tol_upper),
-                "dimtm": abs(float(tol_lower)),
+                "dimtm": float(tol_lower),
             }
         )
     elif mode == "limit":
@@ -66,7 +71,7 @@ def build_dim_override(
                 "dimlim": 1,
                 "dimtol": 0,
                 "dimtp": float(tol_upper),
-                "dimtm": abs(float(tol_lower)),
+                "dimtm": float(tol_lower),
             }
         )
     elif mode == "basic":

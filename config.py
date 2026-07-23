@@ -43,5 +43,16 @@ class Settings:
         )
         self.mcp_auth_token: str = os.environ.get("MCP_AUTH_TOKEN", "").strip()
 
+        # Exposed tool profile: "full" (default, everything), "core" (hides the
+        # raw escape hatches and long-tail tools) or "lean" (a curated ~46-tool
+        # drafting/inspection core for clients with tight tool caps). Invalid
+        # values fall back to "full" with a warning at startup.
+        self.tool_profile: str = os.environ.get("TOOL_PROFILE", "full").lower().strip()
+
+        # Opt-in 3D solids (COM backend only). Disabled by default because the
+        # headless backend cannot produce ACIS solids and live 3D modifies real
+        # documents; enable deliberately.
+        self.enable_3d: bool = os.environ.get("ENABLE_3D", "false").lower().strip() == "true"
+
 
 settings = Settings()

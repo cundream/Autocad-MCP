@@ -58,6 +58,7 @@ try:
     from ezdxf import colors, units  # noqa: F401
     from ezdxf.enums import TextEntityAlignment  # noqa: F401
     from ezdxf.math import BSpline, Vec2, Vec3  # noqa: F401
+
     _EZDXF_OK = True
 except ImportError:
     _EZDXF_OK = False
@@ -65,6 +66,7 @@ except ImportError:
 
 try:
     from ezdxf import bbox as ezdxf_bbox
+
     _BBOX_OK = True
 except ImportError:
     _BBOX_OK = False
@@ -80,12 +82,12 @@ _BUILTIN_LINETYPES = {"continuous", "bylayer", "byblock"}
 # Pattern format: [total_length, dash_1, gap_1, dash_2, gap_2, ...] (gaps negative).
 # Values match acadiso.lin so drawings render the same in AutoCAD viewers.
 _AUTOCAD_FALLBACK_LINETYPES: dict[str, tuple[str, list[float]]] = {
-    "HIDDEN":   ("Hidden __ __ __ __ __ __ __ __ __",  [7.5, 5.0, -2.5]),
-    "HIDDEN2":  ("Hidden (.5x) _ _ _ _ _ _ _ _ _",     [3.75, 2.5, -1.25]),
-    "HIDDENX2": ("Hidden (2x) ____ ____ ____ ____",    [15.0, 10.0, -5.0]),
-    "BORDER":   ("Border __ __ . __ __ . __ __ . __",  [22.5, 7.5, -2.5, 7.5, -2.5, 0.0, -2.5]),
-    "BORDER2":  ("Border (.5x) __.__.__.__.__.__",     [11.25, 3.75, -1.25, 3.75, -1.25, 0.0, -1.25]),
-    "BORDERX2": ("Border (2x) ____  __  ____  __",     [45.0, 15.0, -5.0, 15.0, -5.0, 0.0, -5.0]),
+    "HIDDEN": ("Hidden __ __ __ __ __ __ __ __ __", [7.5, 5.0, -2.5]),
+    "HIDDEN2": ("Hidden (.5x) _ _ _ _ _ _ _ _ _", [3.75, 2.5, -1.25]),
+    "HIDDENX2": ("Hidden (2x) ____ ____ ____ ____", [15.0, 10.0, -5.0]),
+    "BORDER": ("Border __ __ . __ __ . __ __ . __", [22.5, 7.5, -2.5, 7.5, -2.5, 0.0, -2.5]),
+    "BORDER2": ("Border (.5x) __.__.__.__.__.__", [11.25, 3.75, -1.25, 3.75, -1.25, 0.0, -1.25]),
+    "BORDERX2": ("Border (2x) ____  __  ____  __", [45.0, 15.0, -5.0, 15.0, -5.0, 0.0, -5.0]),
 }
 
 
@@ -112,6 +114,7 @@ def _ensure_linetype_loaded(doc, name: str) -> None:
         return
     try:
         from ezdxf.tools import standards as ezdxf_standards
+
         for lt_name, description, pattern in ezdxf_standards.linetypes():
             if lt_name.lower() == name.lower():
                 doc.linetypes.add(lt_name, pattern=pattern, description=description)
@@ -138,9 +141,10 @@ def _entity_info_dxf(ent) -> EntityInfo:
     visible = ent.dxf.get("invisible", False) is False
 
     props: dict = {}
+
     def _v2(v):
         """Convert Vec3/tuple to [x, y] list."""
-        return [float(v.x), float(v.y)] if hasattr(v, 'x') else [float(v[0]), float(v[1])]
+        return [float(v.x), float(v.y)] if hasattr(v, "x") else [float(v[0]), float(v[1])]
 
     try:
         if ent_type == "LINE":
@@ -186,8 +190,15 @@ def _entity_info_dxf(ent) -> EntityInfo:
             if ent.dxf.hasattr("fit_points"):
                 props["fit_point_count"] = len(list(ent.fit_points))
             props["degree"] = ent.dxf.degree
-        elif ent_type in ("DIMENSION", "DIMLINEAR", "DIMALIGNED", "DIMANGULAR",
-                          "DIMRADIUS", "DIMDIAMETER", "DIMORDINATE"):
+        elif ent_type in (
+            "DIMENSION",
+            "DIMLINEAR",
+            "DIMALIGNED",
+            "DIMANGULAR",
+            "DIMRADIUS",
+            "DIMDIAMETER",
+            "DIMORDINATE",
+        ):
             props["dim_type"] = ent_type
             # Reference points for dim_overlap critique. ezdxf dimensions carry
             # a definition point and (usually) the text midpoint.
@@ -208,6 +219,7 @@ def _entity_info_dxf(ent) -> EntityInfo:
     # reading properties["bounding_box"] work on both engines (N5).
     try:
         from ezdxf import bbox as _bbox
+
         _bb = _bbox.extents([ent])
         if _bb.has_data:
             props["bounding_box"] = {
@@ -290,8 +302,13 @@ class EzdxfBackend(AutoCADBackend):
                 "preflight": FeatureCapability(True, "shared"),
                 "refiner": FeatureCapability(True, "shared"),
                 "delivery": FeatureCapability(True, "shared"),
-                "paper_space": FeatureCapability(False, reason="planned_1.4"),
-                "solid_3d": FeatureCapability(False, reason="planned_1.5"),
+                "paper_space": FeatureCapability(True, "native"),
+                "viewport_render": FeatureCapability(
+                    False, reason="viewport_model_projection_requires_live_autocad"
+                ),
+                "solid_3d": FeatureCapability(
+                    False, reason="acis_generation_requires_live_autocad"
+                ),
                 "lisp": FeatureCapability(False, reason="live_com_only"),
             },
         )
@@ -316,9 +333,7 @@ class EzdxfBackend(AutoCADBackend):
 
     def _require_doc(self):
         if self._doc is None:
-            raise RuntimeError(
-                "No document open. Call drawing_new() or drawing_open() first."
-            )
+            raise RuntimeError("No document open. Call drawing_new() or drawing_open() first.")
         return self._doc
 
     def _msp(self):
@@ -369,6 +384,7 @@ class EzdxfBackend(AutoCADBackend):
                 version=doc.dxfversion,
                 backend="ezdxf",
             )
+
         return await self._async(_sync)
 
     async def drawing_new(self, template: str | None = None) -> dict:
@@ -382,6 +398,7 @@ class EzdxfBackend(AutoCADBackend):
             self._current_layer = "0"
             self._reset_document_state()
             return {"ok": True, "name": "untitled.dxf"}
+
         return await self._async(_sync)
 
     async def drawing_open(self, path: str) -> dict:
@@ -407,6 +424,7 @@ class EzdxfBackend(AutoCADBackend):
                 self._current_layer = "0"
             self._reset_document_state()
             return {"ok": True, "name": Path(path).name, "path": path}
+
         return await self._async(_sync)
 
     async def drawing_save(self, path: str | None = None) -> dict:
@@ -419,6 +437,7 @@ class EzdxfBackend(AutoCADBackend):
             self._doc_path = save_path
             self._dirty = False
             return {"ok": True, "path": save_path}
+
         return await self._async(_sync)
 
     async def drawing_save_as(self, path: str, fmt: str = "dxf") -> dict:
@@ -427,22 +446,36 @@ class EzdxfBackend(AutoCADBackend):
                 "ezdxf backend cannot write true DWG binary. "
                 "Use save_path with a .dxf extension, or switch to the COM backend."
             )
+
         def _sync():
             doc = self._require_doc()
             doc.saveas(path)
             self._doc_path = path
             self._dirty = False
             return {"ok": True, "path": path, "format": "dxf"}
+
         return await self._async(_sync)
 
     async def drawing_export_dxf(self, path: str) -> dict:
         return await self.drawing_save_as(path, "dxf")
 
-    async def drawing_export_pdf(self, path: str) -> dict:
-        """Export to PDF via ezdxf's matplotlib backend."""
+    async def drawing_export_pdf(self, path: str, layout: str | None = None) -> dict:
+        """Export to PDF via ezdxf's matplotlib backend.
+
+        With ``layout`` set to a paper-space layout name the layout's own
+        entities (titleblock, viewport frames, annotation) are rendered.
+        Model content is not projected through viewports headlessly - that
+        remains a COM-native capability and is reported in the result.
+        """
+
         def _sync():
             doc = self._require_doc()
-            msp = self._msp()
+            if layout and layout != "Model":
+                if layout not in doc.layouts.names():
+                    return {"ok": False, "error": f"Layout not found: {layout}"}
+                target = doc.layouts.get(layout)
+            else:
+                target = self._msp()
             try:
                 from ezdxf.addons.drawing import Frontend, RenderContext
                 from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
@@ -451,14 +484,141 @@ class EzdxfBackend(AutoCADBackend):
                 ax = fig.add_axes([0, 0, 1, 1])
                 ctx = RenderContext(doc)
                 out = MatplotlibBackend(ax)
-                Frontend(ctx, out).draw_layout(msp, finalize=True)
+                Frontend(ctx, out).draw_layout(target, finalize=True)
                 fig.savefig(path, dpi=150)
-                return {"ok": True, "path": path}
+                result = {"ok": True, "path": path}
+                if layout and layout != "Model":
+                    result["layout"] = layout
+                    result["note"] = (
+                        "Paper-space entities and viewport frames are rendered; "
+                        "projecting model content through viewports is COM-only."
+                    )
+                return result
             except ImportError:
                 raise RuntimeError(
                     "PDF export requires matplotlib: pip install matplotlib"
                 ) from None
+
         return await self._async(_sync)
+
+    # ── layouts / paper space ────────────────────────────────────────────────
+
+    async def layout_list(self) -> dict:
+        def _sync():
+            doc = self._require_doc()
+            names = list(doc.layouts.names_in_taborder())
+            # DXF stores the current tab as $TILEMODE (1 = Model) plus the
+            # active paper-space layout binding (*Paper_Space block record).
+            if int(doc.header.get("$TILEMODE", 1)):
+                current = "Model"
+            else:
+                current = doc.active_layout().name
+            return {"ok": True, "layouts": names, "current": current}
+
+        return await self._async(_sync)
+
+    async def layout_create(self, name: str) -> dict:
+        def _sync():
+            doc = self._require_doc()
+            if name in doc.layouts.names():
+                return {"ok": False, "error": f"Layout already exists: {name}"}
+            doc.layouts.new(name)
+            return {"ok": True, "layout": name}
+
+        return await self._async(_sync)
+
+    async def layout_set_current(self, name: str) -> dict:
+        def _sync():
+            doc = self._require_doc()
+            if name not in doc.layouts.names():
+                return {"ok": False, "error": f"Layout not found: {name}"}
+            if name == "Model":
+                doc.header["$TILEMODE"] = 1
+            else:
+                # Rebind *Paper_Space so AutoCAD treats it as the active
+                # paper-space layout; TILEMODE=0 selects the paper tab.
+                doc.layouts.set_active_layout(name)
+                doc.header["$TILEMODE"] = 0
+            return {"ok": True, "current": name}
+
+        return await self._async(_sync)
+
+    async def viewport_create(
+        self,
+        layout: str,
+        center_x: float,
+        center_y: float,
+        width: float,
+        height: float,
+        view_center_x: float,
+        view_center_y: float,
+        scale: float = 1.0,
+    ) -> dict:
+        def _sync():
+            doc = self._require_doc()
+            if scale <= 0:
+                return {"ok": False, "error": "scale must be > 0 (paper:model, e.g. 0.5 for 1:2)"}
+            if layout == "Model" or layout not in doc.layouts.names():
+                return {"ok": False, "error": f"Paper-space layout not found: {layout}"}
+            target = doc.layouts.get(layout)
+            view_height = height / scale
+            viewport = target.add_viewport(
+                center=(center_x, center_y),
+                size=(width, height),
+                view_center_point=(view_center_x, view_center_y),
+                view_height=view_height,
+            )
+            return {
+                "ok": True,
+                "handle": viewport.dxf.handle,
+                "layout": layout,
+                "scale": scale,
+                "view_height": view_height,
+            }
+
+        return await self._async(_sync)
+
+    # ── 3D solids (unsupported headlessly — honest capability boundary) ─────
+
+    @staticmethod
+    def _solid_unsupported(operation: str) -> dict:
+        return {
+            "ok": False,
+            "error": (
+                f"{operation}: 3D ACIS solids cannot be generated headlessly; "
+                "use the live COM backend with ENABLE_3D=true"
+            ),
+            "capability": "solid_3d",
+        }
+
+    async def solid_box(
+        self, cx: float, cy: float, cz: float, length: float, width: float, height: float
+    ) -> dict:
+        return self._solid_unsupported("solid_box")
+
+    async def solid_cylinder(
+        self, cx: float, cy: float, cz: float, radius: float, height: float
+    ) -> dict:
+        return self._solid_unsupported("solid_cylinder")
+
+    async def solid_extrude(
+        self, profile_handle: str, height: float, taper_angle: float = 0.0
+    ) -> dict:
+        return self._solid_unsupported("solid_extrude")
+
+    async def solid_revolve(
+        self,
+        profile_handle: str,
+        axis_x1: float,
+        axis_y1: float,
+        axis_x2: float,
+        axis_y2: float,
+        angle: float = 360.0,
+    ) -> dict:
+        return self._solid_unsupported("solid_revolve")
+
+    async def solid_boolean(self, target_handle: str, tool_handle: str, operation: str) -> dict:
+        return self._solid_unsupported("solid_boolean")
 
     async def drawing_purge(self) -> dict:
         def _sync():
@@ -525,6 +685,7 @@ class EzdxfBackend(AutoCADBackend):
 
             self._mark_dirty()
             return {"ok": True, "purged": purged}
+
         return await self._async(_sync)
 
     async def drawing_audit(self) -> dict:
@@ -536,6 +697,7 @@ class EzdxfBackend(AutoCADBackend):
                 "errors": [str(e) for e in auditor.errors],
                 "error_count": len(auditor.errors),
             }
+
         return await self._async(_sync)
 
     async def drawing_close(self, save: bool = True) -> dict:
@@ -548,6 +710,7 @@ class EzdxfBackend(AutoCADBackend):
             self._dirty = False
             self._reset_document_state()
             return {"ok": True}
+
         return await self._async(_sync)
 
     async def drawing_undo(self) -> dict:
@@ -566,6 +729,7 @@ class EzdxfBackend(AutoCADBackend):
                 except OSError:
                     pass
             return {"ok": True, "message": "Undone to last saved state"}
+
         return await self._async(_sync)
 
     async def drawing_redo(self) -> dict:
@@ -573,7 +737,9 @@ class EzdxfBackend(AutoCADBackend):
 
     # ── internal: apply common attrs ──────────────────────────────────────────
 
-    def _apply_attrs(self, entity, layer: str | None, color: int | None, linetype: str | None = None):
+    def _apply_attrs(
+        self, entity, layer: str | None, color: int | None, linetype: str | None = None
+    ):
         if layer is not None:
             entity.dxf.layer = layer
             # Ensure layer exists
@@ -595,8 +761,16 @@ class EzdxfBackend(AutoCADBackend):
     # ── entity creation ───────────────────────────────────────────────────────
 
     async def entity_create_line(
-        self, x1, y1, x2, y2, z1=0.0, z2=0.0,
-        layer=None, color=None, linetype=None,
+        self,
+        x1,
+        y1,
+        x2,
+        y2,
+        z1=0.0,
+        z2=0.0,
+        layer=None,
+        color=None,
+        linetype=None,
     ) -> EntityInfo:
         def _sync():
             msp = self._msp()
@@ -607,10 +781,16 @@ class EzdxfBackend(AutoCADBackend):
             self._apply_attrs(ent, layer, color, linetype)
             self._mark_dirty()
             return _entity_info_dxf(ent)
+
         return await self._async(_sync)
 
     async def entity_create_circle(
-        self, cx, cy, radius, layer=None, color=None,
+        self,
+        cx,
+        cy,
+        radius,
+        layer=None,
+        color=None,
     ) -> EntityInfo:
         def _sync():
             msp = self._msp()
@@ -618,24 +798,39 @@ class EzdxfBackend(AutoCADBackend):
             self._apply_attrs(ent, layer, color)
             self._mark_dirty()
             return _entity_info_dxf(ent)
+
         return await self._async(_sync)
 
     async def entity_create_arc(
-        self, cx, cy, radius, start_angle, end_angle, layer=None, color=None,
+        self,
+        cx,
+        cy,
+        radius,
+        start_angle,
+        end_angle,
+        layer=None,
+        color=None,
     ) -> EntityInfo:
         def _sync():
             msp = self._msp()
             ent = msp.add_arc(
-                (float(cx), float(cy)), float(radius),
-                float(start_angle), float(end_angle),
+                (float(cx), float(cy)),
+                float(radius),
+                float(start_angle),
+                float(end_angle),
             )
             self._apply_attrs(ent, layer, color)
             self._mark_dirty()
             return _entity_info_dxf(ent)
+
         return await self._async(_sync)
 
     async def entity_create_polyline(
-        self, points, closed=False, layer=None, color=None,
+        self,
+        points,
+        closed=False,
+        layer=None,
+        color=None,
     ) -> EntityInfo:
         def _sync():
             msp = self._msp()
@@ -644,10 +839,18 @@ class EzdxfBackend(AutoCADBackend):
             self._apply_attrs(ent, layer, color)
             self._mark_dirty()
             return _entity_info_dxf(ent)
+
         return await self._async(_sync)
 
     async def entity_create_text(
-        self, text, x, y, height=2.5, rotation=0.0, layer=None, color=None,
+        self,
+        text,
+        x,
+        y,
+        height=2.5,
+        rotation=0.0,
+        layer=None,
+        color=None,
     ) -> EntityInfo:
         def _sync():
             msp = self._msp()
@@ -662,10 +865,19 @@ class EzdxfBackend(AutoCADBackend):
             self._apply_attrs(ent, layer, color)
             self._mark_dirty()
             return _entity_info_dxf(ent)
+
         return await self._async(_sync)
 
     async def entity_create_mtext(
-        self, text, x, y, width=100.0, height=2.5, rotation=0.0, layer=None, color=None,
+        self,
+        text,
+        x,
+        y,
+        width=100.0,
+        height=2.5,
+        rotation=0.0,
+        layer=None,
+        color=None,
     ) -> EntityInfo:
         def _sync():
             msp = self._msp()
@@ -679,6 +891,7 @@ class EzdxfBackend(AutoCADBackend):
             self._apply_attrs(ent, layer, color)
             self._mark_dirty()
             return _entity_info_dxf(ent)
+
         return await self._async(_sync)
 
     async def entity_create_table(
@@ -695,9 +908,7 @@ class EzdxfBackend(AutoCADBackend):
     ) -> EntityInfo:
         from engineering.annotation import prepare_table_layout
 
-        layout = prepare_table_layout(
-            rows, headers, column_widths, row_height, text_height, title
-        )
+        layout = prepare_table_layout(rows, headers, column_widths, row_height, text_height, title)
 
         def _sync():
             msp = self._msp()
@@ -827,8 +1038,14 @@ class EzdxfBackend(AutoCADBackend):
                     "points": [list(point) for point in normalized],
                     "text": str(text),
                     "bounds": {
-                        "min": [min(point[0] for point in normalized), min(point[1] for point in normalized)],
-                        "max": [max(point[0] for point in normalized), max(point[1] for point in normalized)],
+                        "min": [
+                            min(point[0] for point in normalized),
+                            min(point[1] for point in normalized),
+                        ],
+                        "max": [
+                            max(point[0] for point in normalized),
+                            max(point[1] for point in normalized),
+                        ],
                     },
                 },
             )
@@ -836,8 +1053,13 @@ class EzdxfBackend(AutoCADBackend):
         return await self._async(_sync)
 
     async def entity_create_hatch(
-        self, pattern, boundary_points, scale=1.0, angle=0.0,
-        layer=None, color=None,
+        self,
+        pattern,
+        boundary_points,
+        scale=1.0,
+        angle=0.0,
+        layer=None,
+        color=None,
     ) -> EntityInfo:
         def _sync():
             msp = self._msp()
@@ -848,10 +1070,14 @@ class EzdxfBackend(AutoCADBackend):
             self._apply_attrs(hatch, layer, color)
             self._mark_dirty()
             return _entity_info_dxf(hatch)
+
         return await self._async(_sync)
 
     async def entity_create_spline(
-        self, fit_points, layer=None, color=None,
+        self,
+        fit_points,
+        layer=None,
+        color=None,
     ) -> EntityInfo:
         def _sync():
             msp = self._msp()
@@ -860,10 +1086,18 @@ class EzdxfBackend(AutoCADBackend):
             self._apply_attrs(ent, layer, color)
             self._mark_dirty()
             return _entity_info_dxf(ent)
+
         return await self._async(_sync)
 
     async def entity_create_ellipse(
-        self, cx, cy, major_x, major_y, ratio=0.5, layer=None, color=None,
+        self,
+        cx,
+        cy,
+        major_x,
+        major_y,
+        ratio=0.5,
+        layer=None,
+        color=None,
     ) -> EntityInfo:
         def _sync():
             msp = self._msp()
@@ -875,10 +1109,15 @@ class EzdxfBackend(AutoCADBackend):
             self._apply_attrs(ent, layer, color)
             self._mark_dirty()
             return _entity_info_dxf(ent)
+
         return await self._async(_sync)
 
     async def entity_create_point(
-        self, x, y, layer=None, color=None,
+        self,
+        x,
+        y,
+        layer=None,
+        color=None,
     ) -> EntityInfo:
         def _sync():
             msp = self._msp()
@@ -886,10 +1125,18 @@ class EzdxfBackend(AutoCADBackend):
             self._apply_attrs(ent, layer, color)
             self._mark_dirty()
             return _entity_info_dxf(ent)
+
         return await self._async(_sync)
 
     async def entity_create_block_ref(
-        self, name, x, y, scale_x=1.0, scale_y=1.0, rotation=0.0, layer=None,
+        self,
+        name,
+        x,
+        y,
+        scale_x=1.0,
+        scale_y=1.0,
+        rotation=0.0,
+        layer=None,
     ) -> EntityInfo:
         def _sync():
             msp = self._msp()
@@ -906,16 +1153,29 @@ class EzdxfBackend(AutoCADBackend):
                 ent.dxf.layer = layer
             self._mark_dirty()
             return _entity_info_dxf(ent)
+
         return await self._async(_sync)
 
     # ── dimensions ───────────────────────────────────────────────────────────
 
     async def dimension_linear(
-        self, x1, y1, x2, y2, dim_x, dim_y, rotation=0.0, layer=None,
-        tol_upper=None, tol_lower=None, tol_mode="none", text_override=None,
+        self,
+        x1,
+        y1,
+        x2,
+        y2,
+        dim_x,
+        dim_y,
+        rotation=0.0,
+        layer=None,
+        tol_upper=None,
+        tol_lower=None,
+        tol_mode="none",
+        text_override=None,
     ) -> EntityInfo:
         def _sync():
             from engineering.tolerances import build_dim_override
+
             override, text = build_dim_override(tol_upper, tol_lower, tol_mode, text_override)
             msp = self._msp()
             dim = msp.add_linear_dim(
@@ -932,17 +1192,27 @@ class EzdxfBackend(AutoCADBackend):
                 ent.dxf.layer = layer
             self._mark_dirty()
             return _entity_info_dxf(ent)
+
         return await self._async(_sync)
 
     async def dimension_aligned(
-        self, x1, y1, x2, y2, dim_x, dim_y, layer=None,
+        self,
+        x1,
+        y1,
+        x2,
+        y2,
+        dim_x,
+        dim_y,
+        layer=None,
     ) -> EntityInfo:
         def _sync():
             msp = self._msp()
             dim = msp.add_aligned_dim(
                 p1=(float(x1), float(y1)),
                 p2=(float(x2), float(y2)),
-                distance=math.sqrt((float(dim_x) - float(x1)) ** 2 + (float(dim_y) - float(y1)) ** 2),
+                distance=math.sqrt(
+                    (float(dim_x) - float(x1)) ** 2 + (float(dim_y) - float(y1)) ** 2
+                ),
             )
             dim.render()
             ent = dim.dimension
@@ -950,10 +1220,20 @@ class EzdxfBackend(AutoCADBackend):
                 ent.dxf.layer = layer
             self._mark_dirty()
             return _entity_info_dxf(ent)
+
         return await self._async(_sync)
 
     async def dimension_angular(
-        self, vx, vy, x1, y1, x2, y2, tx, ty, layer=None,
+        self,
+        vx,
+        vy,
+        x1,
+        y1,
+        x2,
+        y2,
+        tx,
+        ty,
+        layer=None,
     ) -> EntityInfo:
         def _sync():
             msp = self._msp()
@@ -970,14 +1250,25 @@ class EzdxfBackend(AutoCADBackend):
                 ent.dxf.layer = layer
             self._mark_dirty()
             return _entity_info_dxf(ent)
+
         return await self._async(_sync)
 
     async def dimension_radius(
-        self, cx, cy, chord_x, chord_y, leader_length=10.0, layer=None,
-        tol_upper=None, tol_lower=None, tol_mode="none", text_override=None,
+        self,
+        cx,
+        cy,
+        chord_x,
+        chord_y,
+        leader_length=10.0,
+        layer=None,
+        tol_upper=None,
+        tol_lower=None,
+        tol_mode="none",
+        text_override=None,
     ) -> EntityInfo:
         def _sync():
             from engineering.tolerances import build_dim_override
+
             override, text = build_dim_override(tol_upper, tol_lower, tol_mode, text_override)
             msp = self._msp()
             cxf, cyf = float(cx), float(cy)
@@ -1000,14 +1291,25 @@ class EzdxfBackend(AutoCADBackend):
                 ent.dxf.layer = layer
             self._mark_dirty()
             return _entity_info_dxf(ent)
+
         return await self._async(_sync)
 
     async def dimension_diameter(
-        self, x1, y1, x2, y2, leader_length=10.0, layer=None,
-        tol_upper=None, tol_lower=None, tol_mode="none", text_override=None,
+        self,
+        x1,
+        y1,
+        x2,
+        y2,
+        leader_length=10.0,
+        layer=None,
+        tol_upper=None,
+        tol_lower=None,
+        tol_mode="none",
+        text_override=None,
     ) -> EntityInfo:
         def _sync():
             from engineering.tolerances import build_dim_override
+
             override, text = build_dim_override(tol_upper, tol_lower, tol_mode, text_override)
             msp = self._msp()
             x1f, y1f, x2f, y2f = float(x1), float(y1), float(x2), float(y2)
@@ -1032,6 +1334,7 @@ class EzdxfBackend(AutoCADBackend):
                 ent.dxf.layer = layer
             self._mark_dirty()
             return _entity_info_dxf(ent)
+
         return await self._async(_sync)
 
     # ── entity modification ───────────────────────────────────────────────────
@@ -1049,6 +1352,7 @@ class EzdxfBackend(AutoCADBackend):
             ent.translate(float(dx), float(dy), float(dz))
             self._mark_dirty()
             return {"ok": True, "handle": handle}
+
         return await self._async(_sync)
 
     async def entity_copy(self, handle, dx, dy, dz=0.0) -> EntityInfo:
@@ -1059,28 +1363,28 @@ class EzdxfBackend(AutoCADBackend):
             copy.translate(float(dx), float(dy), float(dz))
             self._mark_dirty()
             return _entity_info_dxf(copy)
+
         return await self._async(_sync)
 
     async def entity_rotate(self, handle, base_x, base_y, angle_deg) -> dict:
         def _sync():
             ent = self._get_entity(handle)
             from ezdxf.math import Matrix44
+
             m = Matrix44.z_rotate(math.radians(float(angle_deg)))
             # Translate to origin, rotate, translate back
             bx, by = float(base_x), float(base_y)
-            ent.transform(
-                Matrix44.translate(-bx, -by, 0)
-                @ m
-                @ Matrix44.translate(bx, by, 0)
-            )
+            ent.transform(Matrix44.translate(-bx, -by, 0) @ m @ Matrix44.translate(bx, by, 0))
             self._mark_dirty()
             return {"ok": True, "handle": handle}
+
         return await self._async(_sync)
 
     async def entity_scale(self, handle, base_x, base_y, factor) -> dict:
         def _sync():
             ent = self._get_entity(handle)
             from ezdxf.math import Matrix44
+
             s = float(factor)
             bx, by = float(base_x), float(base_y)
             ent.transform(
@@ -1090,16 +1394,24 @@ class EzdxfBackend(AutoCADBackend):
             )
             self._mark_dirty()
             return {"ok": True, "handle": handle}
+
         return await self._async(_sync)
 
     async def entity_mirror(
-        self, handle, x1, y1, x2, y2, delete_original=False,
+        self,
+        handle,
+        x1,
+        y1,
+        x2,
+        y2,
+        delete_original=False,
     ) -> EntityInfo:
         def _sync():
             ent = self._get_entity(handle)
             copy = ent.copy()
             self._msp().add_entity(copy)
             from ezdxf.math import Matrix44
+
             # Mirror across the line defined by (x1,y1)-(x2,y2)
             dx = float(x2) - float(x1)
             dy = float(y2) - float(y1)
@@ -1108,26 +1420,41 @@ class EzdxfBackend(AutoCADBackend):
                 raise ValueError("Mirror line has zero length")
             cos2 = (dx * dx - dy * dy) / (length * length)
             sin2 = 2 * dx * dy / (length * length)
-            m = Matrix44((
-                cos2,  sin2, 0, 0,
-                sin2, -cos2, 0, 0,
-                0,     0,    1, 0,
-                0,     0,    0, 1,
-            ))
-            tx, ty = float(x1), float(y1)
-            copy.transform(
-                Matrix44.translate(-tx, -ty, 0)
-                @ m
-                @ Matrix44.translate(tx, ty, 0)
+            m = Matrix44(
+                (
+                    cos2,
+                    sin2,
+                    0,
+                    0,
+                    sin2,
+                    -cos2,
+                    0,
+                    0,
+                    0,
+                    0,
+                    1,
+                    0,
+                    0,
+                    0,
+                    0,
+                    1,
+                )
             )
+            tx, ty = float(x1), float(y1)
+            copy.transform(Matrix44.translate(-tx, -ty, 0) @ m @ Matrix44.translate(tx, ty, 0))
             if delete_original:
                 self._msp().delete_entity(ent)
             self._mark_dirty()
             return _entity_info_dxf(copy)
+
         return await self._async(_sync)
 
     async def entity_offset(
-        self, handle, distance, side_x=None, side_y=None,
+        self,
+        handle,
+        distance,
+        side_x=None,
+        side_y=None,
     ) -> EntityInfo:
         def _sync():
             ent = self._get_entity(handle)
@@ -1164,7 +1491,9 @@ class EzdxfBackend(AutoCADBackend):
                 # side_x/side_y selects inside (shrink) or outside (grow); default = outside
                 sign = 1.0
                 if side_x is not None and side_y is not None:
-                    dist_to_center = math.sqrt((float(side_x) - cx) ** 2 + (float(side_y) - cy) ** 2)
+                    dist_to_center = math.sqrt(
+                        (float(side_x) - cx) ** 2 + (float(side_y) - cy) ** 2
+                    )
                     if dist_to_center < ent.dxf.radius:
                         sign = -1.0
                 new_r = ent.dxf.radius + d * sign
@@ -1172,7 +1501,8 @@ class EzdxfBackend(AutoCADBackend):
                     raise ValueError("Offset distance too large for circle")
                 msp = self._msp()
                 new_ent = msp.add_circle(
-                    (cx, cy), new_r,
+                    (cx, cy),
+                    new_r,
                     dxfattribs={"layer": ent.dxf.layer},
                 )
                 self._mark_dirty()
@@ -1180,6 +1510,7 @@ class EzdxfBackend(AutoCADBackend):
 
             else:
                 raise RuntimeError(f"Offset not supported for {ent_type}")
+
         return await self._async(_sync)
 
     async def entity_delete(self, handle) -> dict:
@@ -1188,10 +1519,16 @@ class EzdxfBackend(AutoCADBackend):
             self._msp().delete_entity(ent)
             self._mark_dirty()
             return {"ok": True, "deleted_handle": handle}
+
         return await self._async(_sync)
 
     async def entity_array_rectangular(
-        self, handle, rows, cols, row_spacing, col_spacing,
+        self,
+        handle,
+        rows,
+        cols,
+        row_spacing,
+        col_spacing,
     ) -> list[EntityInfo]:
         def _sync():
             ent = self._get_entity(handle)
@@ -1207,15 +1544,22 @@ class EzdxfBackend(AutoCADBackend):
                     results.append(_entity_info_dxf(copy))
             self._mark_dirty()
             return results
+
         return await self._async(_sync)
 
     async def entity_array_polar(
-        self, handle, count, fill_angle, center_x, center_y,
+        self,
+        handle,
+        count,
+        fill_angle,
+        center_x,
+        center_y,
     ) -> list[EntityInfo]:
         def _sync():
             ent = self._get_entity(handle)
             msp = self._msp()
             from ezdxf.math import Matrix44
+
             results = []
             cx, cy = float(center_x), float(center_y)
             fa = float(fill_angle)
@@ -1236,6 +1580,7 @@ class EzdxfBackend(AutoCADBackend):
                 results.append(_entity_info_dxf(copy))
             self._mark_dirty()
             return results
+
         return await self._async(_sync)
 
     # ── entity query / properties ─────────────────────────────────────────────
@@ -1243,11 +1588,17 @@ class EzdxfBackend(AutoCADBackend):
     async def entity_get(self, handle) -> EntityInfo:
         def _sync():
             return _entity_info_dxf(self._get_entity(handle))
+
         return await self._async(_sync)
 
     async def entity_set_properties(
-        self, handle, layer=None, color=None, linetype=None,
-        lineweight=None, visible=None,
+        self,
+        handle,
+        layer=None,
+        color=None,
+        linetype=None,
+        lineweight=None,
+        visible=None,
     ) -> dict:
         def _sync():
             ent = self._get_entity(handle)
@@ -1264,10 +1615,15 @@ class EzdxfBackend(AutoCADBackend):
                 ent.dxf.invisible = not bool(visible)
             self._mark_dirty()
             return {"ok": True, "handle": handle}
+
         return await self._async(_sync)
 
     async def entity_edit_text(
-        self, handle, text=None, height=None, rotation=None,
+        self,
+        handle,
+        text=None,
+        height=None,
+        rotation=None,
     ) -> EntityInfo:
         def _sync():
             ent = self._get_entity(handle)
@@ -1292,12 +1648,21 @@ class EzdxfBackend(AutoCADBackend):
                 )
             self._mark_dirty()
             return _entity_info_dxf(ent)
+
         return await self._async(_sync)
 
     async def entity_edit_geometry(
-        self, handle, cx=None, cy=None, radius=None,
-        x1=None, y1=None, x2=None, y2=None,
-        start_angle=None, end_angle=None,
+        self,
+        handle,
+        cx=None,
+        cy=None,
+        radius=None,
+        x1=None,
+        y1=None,
+        x2=None,
+        y2=None,
+        start_angle=None,
+        end_angle=None,
     ) -> EntityInfo:
         def _sync():
             ent = self._get_entity(handle)
@@ -1342,10 +1707,15 @@ class EzdxfBackend(AutoCADBackend):
                 )
             self._mark_dirty()
             return _entity_info_dxf(ent)
+
         return await self._async(_sync)
 
     async def entity_list(
-        self, type_filter=None, layer_filter=None, limit=200, offset=0,
+        self,
+        type_filter=None,
+        layer_filter=None,
+        limit=200,
+        offset=0,
     ) -> list[EntityInfo]:
         def _sync():
             msp = self._msp()
@@ -1365,6 +1735,7 @@ class EzdxfBackend(AutoCADBackend):
                 if len(results) >= limit:
                     break
             return results
+
         return await self._async(_sync)
 
     # ── layer management ──────────────────────────────────────────────────────
@@ -1372,14 +1743,16 @@ class EzdxfBackend(AutoCADBackend):
     async def layer_list(self) -> list[LayerInfo]:
         def _sync():
             doc = self._require_doc()
-            return [
-                _layer_info_dxf(lyr, self._current_layer)
-                for lyr in doc.layers
-            ]
+            return [_layer_info_dxf(lyr, self._current_layer) for lyr in doc.layers]
+
         return await self._async(_sync)
 
     async def layer_create(
-        self, name, color=7, linetype="Continuous", lineweight=-3,
+        self,
+        name,
+        color=7,
+        linetype="Continuous",
+        lineweight=-3,
     ) -> LayerInfo:
         def _sync():
             doc = self._require_doc()
@@ -1392,6 +1765,7 @@ class EzdxfBackend(AutoCADBackend):
             )
             self._mark_dirty()
             return _layer_info_dxf(lyr, self._current_layer)
+
         return await self._async(_sync)
 
     async def layer_delete(self, name) -> dict:
@@ -1401,6 +1775,7 @@ class EzdxfBackend(AutoCADBackend):
                 doc.layers.remove(name)
                 self._mark_dirty()
             return {"ok": True, "deleted": name}
+
         return await self._async(_sync)
 
     async def layer_set_current(self, name) -> dict:
@@ -1415,10 +1790,15 @@ class EzdxfBackend(AutoCADBackend):
                 log.debug("writing $CLAYER to header: %s", exc)
             self._mark_dirty()
             return {"ok": True, "current_layer": name}
+
         return await self._async(_sync)
 
     async def layer_modify(
-        self, name, color=None, linetype=None, lineweight=None,
+        self,
+        name,
+        color=None,
+        linetype=None,
+        lineweight=None,
     ) -> LayerInfo:
         def _sync():
             doc = self._require_doc()
@@ -1434,6 +1814,7 @@ class EzdxfBackend(AutoCADBackend):
                 lyr.dxf.lineweight = normalize_lineweight(lineweight)
             self._mark_dirty()
             return _layer_info_dxf(lyr, self._current_layer)
+
         return await self._async(_sync)
 
     async def layer_freeze(self, name) -> dict:
@@ -1444,6 +1825,7 @@ class EzdxfBackend(AutoCADBackend):
                 lyr.freeze()
                 self._mark_dirty()
             return {"ok": True, "layer": name, "frozen": True}
+
         return await self._async(_sync)
 
     async def layer_thaw(self, name) -> dict:
@@ -1454,6 +1836,7 @@ class EzdxfBackend(AutoCADBackend):
                 lyr.thaw()
                 self._mark_dirty()
             return {"ok": True, "layer": name, "frozen": False}
+
         return await self._async(_sync)
 
     async def layer_lock(self, name) -> dict:
@@ -1464,6 +1847,7 @@ class EzdxfBackend(AutoCADBackend):
                 lyr.lock()
                 self._mark_dirty()
             return {"ok": True, "layer": name, "locked": True}
+
         return await self._async(_sync)
 
     async def layer_unlock(self, name) -> dict:
@@ -1474,6 +1858,7 @@ class EzdxfBackend(AutoCADBackend):
                 lyr.unlock()
                 self._mark_dirty()
             return {"ok": True, "layer": name, "locked": False}
+
         return await self._async(_sync)
 
     async def layer_hide(self, name) -> dict:
@@ -1484,6 +1869,7 @@ class EzdxfBackend(AutoCADBackend):
                 lyr.off()
                 self._mark_dirty()
             return {"ok": True, "layer": name, "visible": False}
+
         return await self._async(_sync)
 
     async def layer_show(self, name) -> dict:
@@ -1494,6 +1880,7 @@ class EzdxfBackend(AutoCADBackend):
                 lyr.on()
                 self._mark_dirty()
             return {"ok": True, "layer": name, "visible": True}
+
         return await self._async(_sync)
 
     # ── linetype management ───────────────────────────────────────────────────
@@ -1502,6 +1889,7 @@ class EzdxfBackend(AutoCADBackend):
         def _sync():
             doc = self._require_doc()
             return [lt.dxf.name for lt in doc.linetypes]
+
         return await self._async(_sync)
 
     async def linetype_load(self, name, file=None) -> dict:
@@ -1511,7 +1899,9 @@ class EzdxfBackend(AutoCADBackend):
         # The `file` parameter is accepted for API parity with COM but ignored
         # — ezdxf does not ship a .lin parser.
         from ezdxf.tools import standards as ezdxf_standards
+
         del file
+
         def _sync():
             doc = self._require_doc()
             existing = {lt.dxf.name.lower() for lt in doc.linetypes}
@@ -1521,18 +1911,17 @@ class EzdxfBackend(AutoCADBackend):
                 if lt_name.lower() == name.lower():
                     doc.linetypes.add(lt_name, pattern=pattern, description=description)
                     self._mark_dirty()
-                    return {"ok": True, "name": lt_name,
-                            "source": "ezdxf.tools.standards"}
+                    return {"ok": True, "name": lt_name, "source": "ezdxf.tools.standards"}
             if _add_linetype_from_fallback(doc, name):
                 self._mark_dirty()
-                return {"ok": True, "name": name.upper(),
-                        "source": "autocad_fallback"}
+                return {"ok": True, "name": name.upper(), "source": "autocad_fallback"}
             raise RuntimeError(
                 f"Linetype '{name}' is not in ezdxf's standard set or the "
                 "AutoCAD fallback table. Available standards: CENTER*, DASHED*, "
                 "DASHDOT*, PHANTOM*, DOT*, DIVIDE*. Available fallbacks: "
                 "HIDDEN*, BORDER*. Custom .lin files require the COM backend."
             )
+
         return await self._async(_sync)
 
     # ── block operations ──────────────────────────────────────────────────────
@@ -1544,27 +1933,35 @@ class EzdxfBackend(AutoCADBackend):
             for blk in doc.blocks:
                 if blk.name.startswith("*"):
                     continue
-                attr_count = sum(
-                    1 for e in blk if e.dxftype() == "ATTDEF"
-                )
+                attr_count = sum(1 for e in blk if e.dxftype() == "ATTDEF")
                 origin = blk.block.dxf.get("base_point", (0.0, 0.0, 0.0))
                 is_xref = bool(blk.block.dxf.get("xref_path", ""))
                 # S3: surface the block definition's description instead of always "".
                 description = blk.block.dxf.get("description", "")
-                blocks.append(BlockInfo(
-                    name=blk.name,
-                    origin=(origin[0], origin[1]),
-                    attribute_count=attr_count,
-                    entity_count=len(list(blk)),
-                    is_xref=is_xref,
-                    description=description,
-                ))
+                blocks.append(
+                    BlockInfo(
+                        name=blk.name,
+                        origin=(origin[0], origin[1]),
+                        attribute_count=attr_count,
+                        entity_count=len(list(blk)),
+                        is_xref=is_xref,
+                        description=description,
+                    )
+                )
             return blocks
+
         return await self._async(_sync)
 
     async def block_insert(
-        self, name, x, y, scale_x=1.0, scale_y=1.0, rotation=0.0,
-        attributes=None, layer=None,
+        self,
+        name,
+        x,
+        y,
+        scale_x=1.0,
+        scale_y=1.0,
+        rotation=0.0,
+        attributes=None,
+        layer=None,
     ) -> EntityInfo:
         def _sync():
             msp = self._msp()
@@ -1583,6 +1980,7 @@ class EzdxfBackend(AutoCADBackend):
                 ref = msp.add_blockref(name, (float(x), float(y)), dxfattribs=attribs)
             self._mark_dirty()
             return _entity_info_dxf(ref)
+
         return await self._async(_sync)
 
     async def block_explode(self, handle) -> dict:
@@ -1600,6 +1998,7 @@ class EzdxfBackend(AutoCADBackend):
             msp.delete_entity(ent)
             self._mark_dirty()
             return {"ok": True, "inserted_handles": inserted}
+
         return await self._async(_sync)
 
     async def block_get_attributes(self, handle) -> dict:
@@ -1611,6 +2010,7 @@ class EzdxfBackend(AutoCADBackend):
             for attrib in ent.attribs:
                 result[attrib.dxf.tag] = attrib.dxf.text
             return result
+
         return await self._async(_sync)
 
     async def block_set_attributes(self, handle, attributes) -> dict:
@@ -1626,10 +2026,15 @@ class EzdxfBackend(AutoCADBackend):
                     updated.append(tag)
             self._mark_dirty()
             return {"ok": True, "updated_tags": updated}
+
         return await self._async(_sync)
 
     async def block_create_from_entities(
-        self, name, handles, base_x=0.0, base_y=0.0,
+        self,
+        name,
+        handles,
+        base_x=0.0,
+        base_y=0.0,
     ) -> dict:
         def _sync():
             doc = self._require_doc()
@@ -1646,6 +2051,7 @@ class EzdxfBackend(AutoCADBackend):
                     log.debug("adding entity %s to block %s: %s", handle, name, exc)
             self._mark_dirty()
             return {"ok": True, "name": name, "entity_count": count}
+
         return await self._async(_sync)
 
     # ── analysis / query ──────────────────────────────────────────────────────
@@ -1666,10 +2072,15 @@ class EzdxfBackend(AutoCADBackend):
                 "by_type": dict(sorted(type_counts.items(), key=lambda x: -x[1])),
                 "by_layer": dict(sorted(layer_counts.items(), key=lambda x: -x[1])),
             }
+
         return await self._async(_sync)
 
     async def analysis_entities_in_region(
-        self, x1, y1, x2, y2,
+        self,
+        x1,
+        y1,
+        x2,
+        y2,
     ) -> list[EntityInfo]:
         def _sync():
             msp = self._msp()
@@ -1681,8 +2092,13 @@ class EzdxfBackend(AutoCADBackend):
                 for ent in msp:
                     try:
                         bb = ezdxf_bbox.extents([ent])
-                        if bb and bb.extmin.x >= mn_x and bb.extmax.x <= mx_x \
-                                and bb.extmin.y >= mn_y and bb.extmax.y <= mx_y:
+                        if (
+                            bb
+                            and bb.extmin.x >= mn_x
+                            and bb.extmax.x <= mx_x
+                            and bb.extmin.y >= mn_y
+                            and bb.extmax.y <= mx_y
+                        ):
                             results.append(_entity_info_dxf(ent))
                     except Exception as exc:
                         log.debug("bbox check for entity in region: %s", exc)
@@ -1702,6 +2118,7 @@ class EzdxfBackend(AutoCADBackend):
                         log.debug("insertion point check for entity in region: %s", exc)
                         continue
             return results
+
         return await self._async(_sync)
 
     async def analysis_measure_distance(self, x1, y1, x2, y2) -> float:
@@ -1726,6 +2143,7 @@ class EzdxfBackend(AutoCADBackend):
                 except Exception as e:
                     return {"error": str(e)}
             return {"error": "ezdxf bbox not available"}
+
         return await self._async(_sync)
 
     async def analysis_select_by_layer(self, layer_name) -> list[EntityInfo]:
@@ -1736,17 +2154,15 @@ class EzdxfBackend(AutoCADBackend):
                 for e in msp
                 if e.dxf.get("layer", "0").lower() == layer_name.lower()
             ]
+
         return await self._async(_sync)
 
     async def analysis_select_by_type(self, entity_type) -> list[EntityInfo]:
         def _sync():
             msp = self._msp()
             et = entity_type.upper()
-            return [
-                _entity_info_dxf(e)
-                for e in msp
-                if et == e.dxftype().upper()
-            ]
+            return [_entity_info_dxf(e) for e in msp if et == e.dxftype().upper()]
+
         return await self._async(_sync)
 
     async def selection_get(self) -> dict:
@@ -1785,6 +2201,7 @@ class EzdxfBackend(AutoCADBackend):
 
     async def view_screenshot(self) -> bytes | None:
         """Render drawing to PNG using matplotlib."""
+
         def _sync():
             try:
                 doc = self._require_doc()
@@ -1805,6 +2222,7 @@ class EzdxfBackend(AutoCADBackend):
             except ImportError:
                 log.warning("matplotlib not installed – screenshot unavailable")
                 return None
+
         return await self._async(_sync)
 
     # ── transactions ──────────────────────────────────────────────────────────
@@ -1831,6 +2249,7 @@ class EzdxfBackend(AutoCADBackend):
                 except OSError:
                     pass
             return {"ok": True, "message": "Transaction begun (DXF snapshot saved for rollback)"}
+
         return await self._async(_sync)
 
     async def transaction_commit(self) -> dict:
@@ -1845,6 +2264,7 @@ class EzdxfBackend(AutoCADBackend):
             except OSError:
                 pass
             return {"ok": True, "message": "Transaction committed (snapshot discarded)"}
+
         return await self._async(_sync)
 
     async def transaction_rollback(self) -> dict:
@@ -1864,6 +2284,7 @@ class EzdxfBackend(AutoCADBackend):
                 except OSError:
                     pass
             return {"ok": True, "message": "Transaction rolled back to snapshot"}
+
         return await self._async(_sync)
 
     # ── system ────────────────────────────────────────────────────────────────
@@ -1878,9 +2299,15 @@ class EzdxfBackend(AutoCADBackend):
             "unsaved_changes": self._dirty,
             "transaction_depth": len(self._transaction_stack),
             "capabilities": [
-                "file_read_write", "dxf_export", "pdf_export",
-                "entity_creation", "layer_management", "blocks",
-                "dimensions", "analysis", "screenshot_matplotlib",
+                "file_read_write",
+                "dxf_export",
+                "pdf_export",
+                "entity_creation",
+                "layer_management",
+                "blocks",
+                "dimensions",
+                "analysis",
+                "screenshot_matplotlib",
             ],
         }
 
@@ -1888,6 +2315,7 @@ class EzdxfBackend(AutoCADBackend):
         def _sync():
             doc = self._require_doc()
             return doc.header.get(f"${name.upper()}", None)
+
         return await self._async(_sync)
 
     async def system_set_variable(self, name, value) -> dict:
@@ -1896,6 +2324,7 @@ class EzdxfBackend(AutoCADBackend):
             doc.header[f"${name.upper()}"] = value
             self._mark_dirty()
             return {"ok": True, "variable": name, "value": value}
+
         return await self._async(_sync)
 
     async def system_run_command(self, command) -> dict:
@@ -1926,6 +2355,7 @@ class EzdxfBackend(AutoCADBackend):
     async def entity_trim(self, target_handle, cutter_handle, keep_x, keep_y) -> EntityInfo:
         def _sync():
             from ezdxf.math import Vec2, intersection_line_line_2d
+
             target = self._get_entity(target_handle)
             cutter = self._get_entity(cutter_handle)
             if target.dxftype() != "LINE" or cutter.dxftype() != "LINE":
@@ -1958,13 +2388,19 @@ class EzdxfBackend(AutoCADBackend):
                 target.dxf.start = (ix, iy, 0.0)
             self._mark_dirty()
             return _entity_info_dxf(target)
+
         return await self._async(_sync)
 
     async def entity_extend(
-        self, target_handle, boundary_handle, end_x=None, end_y=None,
+        self,
+        target_handle,
+        boundary_handle,
+        end_x=None,
+        end_y=None,
     ) -> EntityInfo:
         def _sync():
             from ezdxf.math import Vec2, intersection_line_line_2d
+
             target = self._get_entity(target_handle)
             boundary = self._get_entity(boundary_handle)
             if target.dxftype() != "LINE" or boundary.dxftype() != "LINE":
@@ -2000,6 +2436,7 @@ class EzdxfBackend(AutoCADBackend):
                 target.dxf.end = (ix, iy, 0.0)
             self._mark_dirty()
             return _entity_info_dxf(target)
+
         return await self._async(_sync)
 
     def _fillet_chamfer_setup(self, handle1: str, handle2: str, op: str):
@@ -2007,6 +2444,7 @@ class EzdxfBackend(AutoCADBackend):
         Returns (line1, line2, P, d1, d2, A_far, B_far, theta) where d1/d2 are
         unit vectors from intersection P toward the far endpoint of each line."""
         from ezdxf.math import Vec2, intersection_line_line_2d
+
         line1 = self._get_entity(handle1)
         line2 = self._get_entity(handle2)
         if line1.dxftype() != "LINE" or line2.dxftype() != "LINE":
@@ -2048,14 +2486,14 @@ class EzdxfBackend(AutoCADBackend):
 
     async def entity_fillet(self, handle1, handle2, radius, trim=True) -> EntityInfo:
         def _sync():
-            line1, line2, P, d1, d2, A_far, B_far, theta = (
-                self._fillet_chamfer_setup(handle1, handle2, "fillet")
+            line1, line2, P, d1, d2, A_far, B_far, theta = self._fillet_chamfer_setup(
+                handle1, handle2, "fillet"
             )
             r = float(radius)
             if r < 0:
                 raise RuntimeError("entity_fillet: radius must be >= 0.")
             half = theta / 2.0
-            s = r / math.tan(half) if r > 0 else 0.0   # tangent distance from P
+            s = r / math.tan(half) if r > 0 else 0.0  # tangent distance from P
             T1 = (P[0] + s * d1[0], P[1] + s * d1[1])
             T2 = (P[0] + s * d2[0], P[1] + s * d2[1])
             msp = self._msp()
@@ -2067,15 +2505,13 @@ class EzdxfBackend(AutoCADBackend):
                 if bl < 1e-12:
                     raise RuntimeError("entity_fillet: bisector is degenerate.")
                 bux, buy = bx / bl, by / bl
-                C = (P[0] + (r / math.sin(half)) * bux,
-                     P[1] + (r / math.sin(half)) * buy)
+                C = (P[0] + (r / math.sin(half)) * bux, P[1] + (r / math.sin(half)) * buy)
                 # Arc start/end angles in degrees, CCW. Pick the orientation
                 # that yields the short arc (interior fillet) using the cross
                 # product sign of (T1-C) × (T2-C).
                 a1 = math.degrees(math.atan2(T1[1] - C[1], T1[0] - C[0]))
                 a2 = math.degrees(math.atan2(T2[1] - C[1], T2[0] - C[0]))
-                cross = ((T1[0] - C[0]) * (T2[1] - C[1])
-                         - (T1[1] - C[1]) * (T2[0] - C[0]))
+                cross = (T1[0] - C[0]) * (T2[1] - C[1]) - (T1[1] - C[1]) * (T2[0] - C[0])
                 if cross >= 0:
                     start_a, end_a = a1, a2
                 else:
@@ -2105,14 +2541,20 @@ class EzdxfBackend(AutoCADBackend):
                 return _entity_info_dxf(self._get_entity(arc_handle))
             # Zero-radius fillet: no arc; return line1 (the modified first line).
             return _entity_info_dxf(line1)
+
         return await self._async(_sync)
 
     async def entity_chamfer(
-        self, handle1, handle2, dist1, dist2=None, trim=True,
+        self,
+        handle1,
+        handle2,
+        dist1,
+        dist2=None,
+        trim=True,
     ) -> EntityInfo:
         def _sync():
-            line1, line2, P, d1, d2, A_far, B_far, theta = (
-                self._fillet_chamfer_setup(handle1, handle2, "chamfer")
+            line1, line2, P, d1, d2, A_far, B_far, theta = self._fillet_chamfer_setup(
+                handle1, handle2, "chamfer"
             )
             d1v = float(dist1)
             d2v = float(dist1 if dist2 is None else dist2)
@@ -2122,7 +2564,8 @@ class EzdxfBackend(AutoCADBackend):
             T2 = (P[0] + d2v * d2[0], P[1] + d2v * d2[1])
             msp = self._msp()
             chamfer_line = msp.add_line(
-                (T1[0], T1[1]), (T2[0], T2[1]),
+                (T1[0], T1[1]),
+                (T2[0], T2[1]),
                 dxfattribs={"layer": line1.dxf.layer},
             )
             if trim:
@@ -2138,6 +2581,7 @@ class EzdxfBackend(AutoCADBackend):
                     line2.dxf.end = (T2[0], T2[1], 0.0)
             self._mark_dirty()
             return _entity_info_dxf(chamfer_line)
+
         return await self._async(_sync)
 
     # ── premium meta-tools live on AutoCADBackend (base.py) and are shared by
@@ -2153,4 +2597,5 @@ class EzdxfBackend(AutoCADBackend):
             )
             self._mark_dirty()
             return _entity_info_dxf(xline)
+
         return await self._async(_sync)

@@ -10,6 +10,7 @@ import pytest
 import server
 from engineering.delivery import compare_drawing_snapshots, deliver_drawing, drawing_snapshot
 from engineering.layers import ensure_engineering_layers, ensure_standard_linetypes
+from version import __version__
 
 
 async def _clean_drawing(backend) -> None:
@@ -42,7 +43,7 @@ async def test_delivery_writes_hashed_manifest_and_reopen_parity(backend, tmp_pa
     assert dxf["status"] == "created"
     assert dxf["sha256"] == hashlib.sha256(artifact_path.read_bytes()).hexdigest()
     assert manifest["parity"]["ok"] is True
-    assert manifest["version"] == "1.3.0"
+    assert manifest["version"] == __version__
     assert manifest["capabilities"]["backend"] == "ezdxf"
 
 
@@ -107,9 +108,7 @@ async def test_snapshot_parity_rejects_incomplete_entity_inventory(backend, monk
     assert source["listed_entity_count"] == 1
     assert source["inventory_complete"] is False
     assert result["ok"] is False
-    assert "source_inventory_complete" in {
-        item["field"] for item in result["differences"]
-    }
+    assert "source_inventory_complete" in {item["field"] for item in result["differences"]}
 
 
 @pytest.mark.asyncio

@@ -48,6 +48,7 @@ if _WIN32_AVAILABLE:
         import win32con  # noqa: F401
         import win32gui
         import win32ui
+
         _COM_IMPORTS_OK = True
     except ImportError:
         _COM_IMPORTS_OK = False
@@ -56,6 +57,7 @@ else:
 
 try:
     from PIL import Image as PILImage
+
     _PIL_OK = True
 except ImportError:
     _PIL_OK = False
@@ -65,7 +67,7 @@ except ImportError:
 # COM thread-state (accessed ONLY from the COM executor thread)
 # ---------------------------------------------------------------------------
 
-_COM_STATE: dict[str, Any] = {}   # keys: "app"
+_COM_STATE: dict[str, Any] = {}  # keys: "app"
 
 
 def _com_init():
@@ -113,6 +115,13 @@ def _ai(values: list[int]):
     )
 
 
+def _solid_3d_capability() -> FeatureCapability:
+    """3D solids are opt-in (ENABLE_3D=true) even on the live COM backend."""
+    if config.settings.enable_3d:
+        return FeatureCapability(True, "native")
+    return FeatureCapability(False, reason="opt_in_disabled:set ENABLE_3D=true")
+
+
 def _acad_app():
     """Return (or lazily create) the AutoCAD Application COM object.
     Must only be called from the COM executor thread."""
@@ -126,8 +135,7 @@ def _acad_app():
                 _COM_STATE["app"].Visible = True
             except Exception as exc:
                 raise RuntimeError(
-                    f"Cannot connect to AutoCAD: {exc}. "
-                    "Make sure AutoCAD is installed and running."
+                    f"Cannot connect to AutoCAD: {exc}. Make sure AutoCAD is installed and running."
                 ) from exc
     return _COM_STATE["app"]
 
@@ -157,8 +165,7 @@ def _ensure_linetype_loaded(name: str) -> None:
     if not name or name.lower() in _BUILTIN_LINETYPES:
         return
     doc = _acad_doc()
-    existing = {doc.Linetypes.Item(i).Name.lower()
-                for i in range(doc.Linetypes.Count)}
+    existing = {doc.Linetypes.Item(i).Name.lower() for i in range(doc.Linetypes.Count)}
     if name.lower() in existing:
         return
     app = _acad_app()
@@ -199,7 +206,7 @@ def _regen():
     if _COM_STATE.get("batch_mode"):
         return
     try:
-        _acad_doc().Regen(0)   # 0 = acActiveViewport
+        _acad_doc().Regen(0)  # 0 = acActiveViewport
     except Exception as exc:
         log.debug("Regen failed: %s", exc)
 
@@ -214,6 +221,7 @@ def _apply_dim_tolerance(dim, tol_upper, tol_lower, tol_mode="none", text_overri
     property degrades gracefully instead of failing the dimension.
     """
     from engineering.tolerances import build_dim_override
+
     try:
         override, text = build_dim_override(tol_upper, tol_lower, tol_mode, text_override)
     except ValueError:
@@ -227,15 +235,15 @@ def _apply_dim_tolerance(dim, tol_upper, tol_lower, tol_mode="none", text_overri
         return
     # acTolerance* enums: 0=None, 1=Symmetrical, 2=Deviation, 3=Limits, 4=Basic
     try:
-        if "dimgap" in override:            # basic (boxed) dimension
+        if "dimgap" in override:  # basic (boxed) dimension
             dim.ToleranceDisplay = 4
             return
-        if override.get("dimlim"):          # limit dimension
+        if override.get("dimlim"):  # limit dimension
             dim.ToleranceDisplay = 3
         elif override.get("dimtp") == override.get("dimtm"):
-            dim.ToleranceDisplay = 1        # symmetrical ±
+            dim.ToleranceDisplay = 1  # symmetrical ±
         else:
-            dim.ToleranceDisplay = 2        # deviation
+            dim.ToleranceDisplay = 2  # deviation
         if "dimtp" in override:
             dim.ToleranceUpperLimit = float(override["dimtp"])
         if "dimtm" in override:
@@ -282,7 +290,7 @@ def _entity_info(entity) -> EntityInfo:
             props["length"] = entity.Radius * _sweep
         elif obj_name in ("AcDbLWPolyline", "AcDb2dPolyline"):
             coords = list(entity.Coordinates)
-            pts = [[coords[i], coords[i+1]] for i in range(0, len(coords), 2)]
+            pts = [[coords[i], coords[i + 1]] for i in range(0, len(coords), 2)]
             props["points"] = pts
             props["closed"] = bool(entity.Closed)
             props["length"] = entity.Length
@@ -345,6 +353,7 @@ def _layer_info(layer, current_layer_name: str) -> LayerInfo:
 # Screenshot helpers (COM thread only)
 # ---------------------------------------------------------------------------
 
+
 def _find_autocad_hwnd() -> int | None:
     """Find the main AutoCAD window handle."""
     if not _WIN32_AVAILABLE:
@@ -396,6 +405,7 @@ def _capture_window(hwnd: int) -> bytes | None:
 
         # PW_RENDERFULLCONTENT = 2 (works for hardware-accelerated windows)
         import ctypes
+
         ctypes.windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), 2)
 
         bmp_str = save_bmp.GetBitmapBits(True)
@@ -457,17 +467,16 @@ class ComBackend(AutoCADBackend):
                 "preflight": FeatureCapability(True, "shared"),
                 "refiner": FeatureCapability(True, "shared"),
                 "delivery": FeatureCapability(True, "shared"),
-                "paper_space": FeatureCapability(False, reason="planned_1.4"),
-                "solid_3d": FeatureCapability(False, reason="planned_1.5"),
+                "paper_space": FeatureCapability(True, "native"),
+                "viewport_render": FeatureCapability(True, "native"),
+                "solid_3d": _solid_3d_capability(),
                 "lisp": FeatureCapability(True, "sanitized"),
             },
         )
 
     async def connect(self) -> None:
         if not _COM_IMPORTS_OK:
-            raise RuntimeError(
-                "pywin32 not available. Install with: pip install pywin32"
-            )
+            raise RuntimeError("pywin32 not available. Install with: pip install pywin32")
         # Lazy connection: just set up the executor. AutoCAD is connected
         # on the first actual tool call so the server starts even if AutoCAD
         # is not open yet — it will be found as soon as the user opens it.
@@ -521,9 +530,7 @@ class ComBackend(AutoCADBackend):
             raise RuntimeError("ComBackend not connected. Call connect() first.")
         loop = asyncio.get_running_loop()
         timeout = config.settings.com_call_timeout
-        future = loop.run_in_executor(
-            self._executor, lambda: func(*args, **kwargs)
-        )
+        future = loop.run_in_executor(self._executor, lambda: func(*args, **kwargs))
         try:
             if timeout > 0:
                 return await asyncio.wait_for(future, timeout=timeout)
@@ -559,8 +566,7 @@ class ComBackend(AutoCADBackend):
                 _COM_STATE.pop("app", None)
                 self._connected = False
             raise RuntimeError(
-                f"AutoCAD COM error ({hr:#010x}): "
-                f"{e.args[1] if len(e.args) > 1 else e}"
+                f"AutoCAD COM error ({hr:#010x}): {e.args[1] if len(e.args) > 1 else e}"
             ) from e
 
     # ── drawing management ────────────────────────────────────────────────────
@@ -605,6 +611,7 @@ class ComBackend(AutoCADBackend):
                 version=app.Version,
                 backend="com",
             )
+
         return await self._run(_sync)
 
     async def drawing_new(self, template: str | None = None) -> dict:
@@ -615,6 +622,7 @@ class ComBackend(AutoCADBackend):
             else:
                 doc = app.Documents.Add()
             return {"ok": True, "name": doc.Name}
+
         result = await self._run(_sync)
         await self._ensure_document_state()
         return result
@@ -624,6 +632,7 @@ class ComBackend(AutoCADBackend):
             app = _acad_app()
             doc = app.Documents.Open(path)
             return {"ok": True, "name": doc.Name, "path": doc.FullName}
+
         result = await self._run(_sync)
         await self._ensure_document_state()
         return result
@@ -636,6 +645,7 @@ class ComBackend(AutoCADBackend):
             else:
                 doc.Save()
             return {"ok": True, "path": doc.FullName}
+
         return await self._run(_sync)
 
     async def drawing_save_as(self, path: str, fmt: str = "dwg") -> dict:
@@ -646,17 +656,204 @@ class ComBackend(AutoCADBackend):
             acad_fmt = fmt_map.get(fmt.lower(), 12)
             doc.SaveAs(path, acad_fmt)
             return {"ok": True, "path": path, "format": fmt}
+
         return await self._run(_sync)
 
     async def drawing_export_dxf(self, path: str) -> dict:
         return await self.drawing_save_as(path, "dxf")
 
-    async def drawing_export_pdf(self, path: str) -> dict:
+    async def drawing_export_pdf(self, path: str, layout: str | None = None) -> dict:
         def _sync():
             doc = _acad_doc()
-            plot = doc.Plot
-            plot.PlotToFile(path, "DWG To PDF.pc3")
-            return {"ok": True, "path": path}
+            previous = None
+            if layout:
+                previous = doc.ActiveLayout.Name
+                if previous != layout:
+                    doc.ActiveLayout = doc.Layouts.Item(layout)
+            try:
+                plot = doc.Plot
+                plot.PlotToFile(path, "DWG To PDF.pc3")
+                result = {"ok": True, "path": path}
+                if layout:
+                    result["layout"] = layout
+                return result
+            finally:
+                if previous is not None and previous != layout:
+                    doc.ActiveLayout = doc.Layouts.Item(previous)
+
+        return await self._run(_sync)
+
+    # ── layouts / paper space ────────────────────────────────────────────────
+
+    async def layout_list(self) -> dict:
+        def _sync():
+            doc = _acad_doc()
+            names = [doc.Layouts.Item(i).Name for i in range(doc.Layouts.Count)]
+            return {"ok": True, "layouts": names, "current": doc.ActiveLayout.Name}
+
+        return await self._run(_sync)
+
+    async def layout_create(self, name: str) -> dict:
+        def _sync():
+            doc = _acad_doc()
+            existing = {doc.Layouts.Item(i).Name for i in range(doc.Layouts.Count)}
+            if name in existing:
+                return {"ok": False, "error": f"Layout already exists: {name}"}
+            doc.Layouts.Add(name)
+            return {"ok": True, "layout": name}
+
+        return await self._run(_sync)
+
+    async def layout_set_current(self, name: str) -> dict:
+        def _sync():
+            doc = _acad_doc()
+            try:
+                doc.ActiveLayout = doc.Layouts.Item(name)
+            except Exception:
+                return {"ok": False, "error": f"Layout not found: {name}"}
+            return {"ok": True, "current": name}
+
+        return await self._run(_sync)
+
+    async def viewport_create(
+        self,
+        layout: str,
+        center_x: float,
+        center_y: float,
+        width: float,
+        height: float,
+        view_center_x: float,
+        view_center_y: float,
+        scale: float = 1.0,
+    ) -> dict:
+        def _sync():
+            if scale <= 0:
+                return {"ok": False, "error": "scale must be > 0 (paper:model, e.g. 0.5 for 1:2)"}
+            doc = _acad_doc()
+            if layout == "Model":
+                return {"ok": False, "error": "Viewports require a paper-space layout"}
+            try:
+                target = doc.Layouts.Item(layout)
+            except Exception:
+                return {"ok": False, "error": f"Paper-space layout not found: {layout}"}
+            previous = doc.ActiveLayout.Name
+            if previous != layout:
+                doc.ActiveLayout = target
+            try:
+                viewport = doc.PaperSpace.AddPViewport(
+                    _apoint(center_x, center_y), float(width), float(height)
+                )
+                viewport.Display(True)
+                try:
+                    viewport.CustomScale = float(scale)
+                except Exception:  # some verticals expose StandardScale only
+                    pass
+                try:
+                    viewport.ViewCenter = _av([float(view_center_x), float(view_center_y)])
+                except Exception:
+                    pass
+                return {
+                    "ok": True,
+                    "handle": viewport.Handle,
+                    "layout": layout,
+                    "scale": scale,
+                    "view_height": float(height) / float(scale),
+                }
+            finally:
+                if previous != layout:
+                    doc.ActiveLayout = doc.Layouts.Item(previous)
+
+        return await self._run(_sync)
+
+    # ── 3D solids (native ActiveX; gated behind ENABLE_3D at the tool layer) ─
+
+    async def solid_box(
+        self, cx: float, cy: float, cz: float, length: float, width: float, height: float
+    ) -> dict:
+        def _sync():
+            doc = _acad_doc()
+            solid = doc.ModelSpace.AddBox(
+                _apoint(cx, cy, cz), float(length), float(width), float(height)
+            )
+            return {"ok": True, "handle": solid.Handle, "type": "3DSOLID"}
+
+        return await self._run(_sync)
+
+    async def solid_cylinder(
+        self, cx: float, cy: float, cz: float, radius: float, height: float
+    ) -> dict:
+        def _sync():
+            doc = _acad_doc()
+            solid = doc.ModelSpace.AddCylinder(_apoint(cx, cy, cz), float(radius), float(height))
+            return {"ok": True, "handle": solid.Handle, "type": "3DSOLID"}
+
+        return await self._run(_sync)
+
+    def _region_from_profile(self, doc, profile_handle: str):
+        """Build an ACIS region from a closed profile entity handle."""
+        profile = doc.HandleToObject(profile_handle)
+        profiles = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_DISPATCH, [profile])
+        regions = doc.ModelSpace.AddRegion(profiles)
+        if not regions:
+            raise RuntimeError(
+                f"AddRegion produced no region from profile {profile_handle} "
+                "(the profile must be closed)"
+            )
+        return regions[0]
+
+    async def solid_extrude(
+        self, profile_handle: str, height: float, taper_angle: float = 0.0
+    ) -> dict:
+        def _sync():
+            doc = _acad_doc()
+            region = self._region_from_profile(doc, profile_handle)
+            solid = doc.ModelSpace.AddExtrudedSolid(
+                region, float(height), math.radians(float(taper_angle))
+            )
+            region.Delete()
+            return {"ok": True, "handle": solid.Handle, "type": "3DSOLID"}
+
+        return await self._run(_sync)
+
+    async def solid_revolve(
+        self,
+        profile_handle: str,
+        axis_x1: float,
+        axis_y1: float,
+        axis_x2: float,
+        axis_y2: float,
+        angle: float = 360.0,
+    ) -> dict:
+        def _sync():
+            doc = _acad_doc()
+            region = self._region_from_profile(doc, profile_handle)
+            axis_point = _apoint(axis_x1, axis_y1, 0.0)
+            axis_dir = _apoint(axis_x2 - axis_x1, axis_y2 - axis_y1, 0.0)
+            solid = doc.ModelSpace.AddRevolvedSolid(
+                region, axis_point, axis_dir, math.radians(float(angle))
+            )
+            region.Delete()
+            return {"ok": True, "handle": solid.Handle, "type": "3DSOLID"}
+
+        return await self._run(_sync)
+
+    async def solid_boolean(self, target_handle: str, tool_handle: str, operation: str) -> dict:
+        def _sync():
+            op = (operation or "").strip().lower()
+            # AcBooleanType: acUnion=0, acIntersection=1, acSubtraction=2
+            codes = {"union": 0, "intersect": 1, "intersection": 1, "subtract": 2}
+            if op not in codes:
+                return {
+                    "ok": False,
+                    "error": f"Unknown boolean operation {operation!r}. "
+                    "Use union | subtract | intersect.",
+                }
+            doc = _acad_doc()
+            target = doc.HandleToObject(target_handle)
+            tool = doc.HandleToObject(tool_handle)
+            target.Boolean(codes[op], tool)
+            return {"ok": True, "handle": target.Handle, "operation": op, "type": "3DSOLID"}
+
         return await self._run(_sync)
 
     async def drawing_purge(self) -> dict:
@@ -664,6 +861,7 @@ class ComBackend(AutoCADBackend):
             doc = _acad_doc()
             doc.PurgeAll()
             return {"ok": True, "message": "Drawing purged"}
+
         return await self._run(_sync)
 
     async def drawing_audit(self) -> dict:
@@ -673,6 +871,7 @@ class ComBackend(AutoCADBackend):
             app.SetVariable("AUDITCTL", 1)
             doc.SendCommand("_AUDIT Y\n")
             return {"ok": True, "message": "Audit completed"}
+
         return await self._run(_sync)
 
     async def drawing_close(self, save: bool = True) -> dict:
@@ -680,6 +879,7 @@ class ComBackend(AutoCADBackend):
             doc = _acad_doc()
             doc.Close(save)
             return {"ok": True}
+
         result = await self._run(_sync)
         await self._ensure_document_state()
         return result
@@ -689,6 +889,7 @@ class ComBackend(AutoCADBackend):
             doc = _acad_doc()
             doc.SendCommand("_UNDO 1\n")
             return {"ok": True, "message": "Undo applied"}
+
         return await self._run(_sync)
 
     async def drawing_redo(self) -> dict:
@@ -696,13 +897,22 @@ class ComBackend(AutoCADBackend):
             doc = _acad_doc()
             doc.SendCommand("_REDO\n")
             return {"ok": True, "message": "Redo applied"}
+
         return await self._run(_sync)
 
     # ── entity creation ───────────────────────────────────────────────────────
 
     async def entity_create_line(
-        self, x1, y1, x2, y2, z1=0.0, z2=0.0,
-        layer=None, color=None, linetype=None,
+        self,
+        x1,
+        y1,
+        x2,
+        y2,
+        z1=0.0,
+        z2=0.0,
+        layer=None,
+        color=None,
+        linetype=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
@@ -710,10 +920,16 @@ class ComBackend(AutoCADBackend):
             _apply_entity_attrs(line, layer, color, linetype)
             _regen()
             return _entity_info(line)
+
         return await self._run(_sync)
 
     async def entity_create_circle(
-        self, cx, cy, radius, layer=None, color=None,
+        self,
+        cx,
+        cy,
+        radius,
+        layer=None,
+        color=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
@@ -721,24 +937,39 @@ class ComBackend(AutoCADBackend):
             _apply_entity_attrs(circle, layer, color, None)
             _regen()
             return _entity_info(circle)
+
         return await self._run(_sync)
 
     async def entity_create_arc(
-        self, cx, cy, radius, start_angle, end_angle, layer=None, color=None,
+        self,
+        cx,
+        cy,
+        radius,
+        start_angle,
+        end_angle,
+        layer=None,
+        color=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
             arc = mspace.AddArc(
-                _apoint(cx, cy), float(radius),
-                deg2rad(start_angle), deg2rad(end_angle),
+                _apoint(cx, cy),
+                float(radius),
+                deg2rad(start_angle),
+                deg2rad(end_angle),
             )
             _apply_entity_attrs(arc, layer, color, None)
             _regen()
             return _entity_info(arc)
+
         return await self._run(_sync)
 
     async def entity_create_polyline(
-        self, points, closed=False, layer=None, color=None,
+        self,
+        points,
+        closed=False,
+        layer=None,
+        color=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
@@ -750,10 +981,18 @@ class ComBackend(AutoCADBackend):
             _apply_entity_attrs(pline, layer, color, None)
             _regen()
             return _entity_info(pline)
+
         return await self._run(_sync)
 
     async def entity_create_text(
-        self, text, x, y, height=2.5, rotation=0.0, layer=None, color=None,
+        self,
+        text,
+        x,
+        y,
+        height=2.5,
+        rotation=0.0,
+        layer=None,
+        color=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
@@ -762,10 +1001,19 @@ class ComBackend(AutoCADBackend):
             _apply_entity_attrs(txt, layer, color, None)
             _regen()
             return _entity_info(txt)
+
         return await self._run(_sync)
 
     async def entity_create_mtext(
-        self, text, x, y, width=100.0, height=2.5, rotation=0.0, layer=None, color=None,
+        self,
+        text,
+        x,
+        y,
+        width=100.0,
+        height=2.5,
+        rotation=0.0,
+        layer=None,
+        color=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
@@ -776,6 +1024,7 @@ class ComBackend(AutoCADBackend):
             _apply_entity_attrs(mt, layer, color, None)
             _regen()
             return _entity_info(mt)
+
         return await self._run(_sync)
 
     async def entity_create_table(
@@ -792,9 +1041,7 @@ class ComBackend(AutoCADBackend):
     ) -> EntityInfo:
         from engineering.annotation import prepare_table_layout
 
-        layout = prepare_table_layout(
-            rows, headers, column_widths, row_height, text_height, title
-        )
+        layout = prepare_table_layout(rows, headers, column_widths, row_height, text_height, title)
 
         def _sync():
             mspace = _msp()
@@ -886,8 +1133,13 @@ class ComBackend(AutoCADBackend):
         return await self._run(_sync)
 
     async def entity_create_hatch(
-        self, pattern, boundary_points, scale=1.0, angle=0.0,
-        layer=None, color=None,
+        self,
+        pattern,
+        boundary_points,
+        scale=1.0,
+        angle=0.0,
+        layer=None,
+        color=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
@@ -901,19 +1153,21 @@ class ComBackend(AutoCADBackend):
                 flat.extend([float(pt[0]), float(pt[1])])
             bnd_pline = mspace.AddLightWeightPolyline(_av(flat))
             bnd_pline.Closed = True
-            outer = win32com.client.VARIANT(
-                pythoncom.VT_ARRAY | pythoncom.VT_DISPATCH, [bnd_pline]
-            )
+            outer = win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_DISPATCH, [bnd_pline])
             hatch.AppendOuterLoop(outer)
             hatch.Evaluate()
             bnd_pline.Delete()
             _apply_entity_attrs(hatch, layer, color, None)
             _regen()
             return _entity_info(hatch)
+
         return await self._run(_sync)
 
     async def entity_create_spline(
-        self, fit_points, layer=None, color=None,
+        self,
+        fit_points,
+        layer=None,
+        color=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
@@ -922,31 +1176,44 @@ class ComBackend(AutoCADBackend):
                 flat.extend([float(pt[0]), float(pt[1]), 0.0])
             sp = mspace.AddSpline(
                 _av(flat),
-                _apoint(0, 1),   # start tangent
-                _apoint(0, 1),   # end tangent
+                _apoint(0, 1),  # start tangent
+                _apoint(0, 1),  # end tangent
             )
             _apply_entity_attrs(sp, layer, color, None)
             _regen()
             return _entity_info(sp)
+
         return await self._run(_sync)
 
     async def entity_create_ellipse(
-        self, cx, cy, major_x, major_y, ratio=0.5, layer=None, color=None,
+        self,
+        cx,
+        cy,
+        major_x,
+        major_y,
+        ratio=0.5,
+        layer=None,
+        color=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
             ellipse = mspace.AddEllipse(
                 _apoint(cx, cy),
                 _apoint(major_x, major_y),  # major axis vector
-                float(ratio),               # ratio of minor to major axis
+                float(ratio),  # ratio of minor to major axis
             )
             _apply_entity_attrs(ellipse, layer, color, None)
             _regen()
             return _entity_info(ellipse)
+
         return await self._run(_sync)
 
     async def entity_create_point(
-        self, x, y, layer=None, color=None,
+        self,
+        x,
+        y,
+        layer=None,
+        color=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
@@ -954,78 +1221,130 @@ class ComBackend(AutoCADBackend):
             _apply_entity_attrs(pt, layer, color, None)
             _regen()
             return _entity_info(pt)
+
         return await self._run(_sync)
 
     async def entity_create_block_ref(
-        self, name, x, y, scale_x=1.0, scale_y=1.0, rotation=0.0, layer=None,
+        self,
+        name,
+        x,
+        y,
+        scale_x=1.0,
+        scale_y=1.0,
+        rotation=0.0,
+        layer=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
             ref = mspace.InsertBlock(
-                _apoint(x, y), name,
-                float(scale_x), float(scale_y), 1.0,
+                _apoint(x, y),
+                name,
+                float(scale_x),
+                float(scale_y),
+                1.0,
                 deg2rad(rotation),
             )
             if layer:
                 ref.Layer = layer
             _regen()
             return _entity_info(ref)
+
         return await self._run(_sync)
 
     # ── dimensions ────────────────────────────────────────────────────────────
 
     async def dimension_linear(
-        self, x1, y1, x2, y2, dim_x, dim_y, rotation=0.0, layer=None,
-        tol_upper=None, tol_lower=None, tol_mode="none", text_override=None,
+        self,
+        x1,
+        y1,
+        x2,
+        y2,
+        dim_x,
+        dim_y,
+        rotation=0.0,
+        layer=None,
+        tol_upper=None,
+        tol_lower=None,
+        tol_mode="none",
+        text_override=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
             # The ActiveX API has no AddDimLinear — rotated linear dims are
             # created with AddDimRotated (GH issue #3).
             dim = mspace.AddDimRotated(
-                _apoint(x1, y1), _apoint(x2, y2),
-                _apoint(dim_x, dim_y), deg2rad(rotation),
+                _apoint(x1, y1),
+                _apoint(x2, y2),
+                _apoint(dim_x, dim_y),
+                deg2rad(rotation),
             )
             if layer:
                 dim.Layer = layer
             _apply_dim_tolerance(dim, tol_upper, tol_lower, tol_mode, text_override)
             _regen()
             return _entity_info(dim)
+
         return await self._run(_sync)
 
     async def dimension_aligned(
-        self, x1, y1, x2, y2, dim_x, dim_y, layer=None,
+        self,
+        x1,
+        y1,
+        x2,
+        y2,
+        dim_x,
+        dim_y,
+        layer=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
-            dim = mspace.AddDimAligned(
-                _apoint(x1, y1), _apoint(x2, y2), _apoint(dim_x, dim_y)
-            )
+            dim = mspace.AddDimAligned(_apoint(x1, y1), _apoint(x2, y2), _apoint(dim_x, dim_y))
             if layer:
                 dim.Layer = layer
             _regen()
             return _entity_info(dim)
+
         return await self._run(_sync)
 
     async def dimension_angular(
-        self, vx, vy, x1, y1, x2, y2, tx, ty, layer=None,
+        self,
+        vx,
+        vy,
+        x1,
+        y1,
+        x2,
+        y2,
+        tx,
+        ty,
+        layer=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
             dim = mspace.AddDimAngular(
                 _apoint(vx, vy),
-                _apoint(x1, y1), _apoint(x2, y2),
+                _apoint(x1, y1),
+                _apoint(x2, y2),
                 _apoint(tx, ty),
             )
             if layer:
                 dim.Layer = layer
             _regen()
             return _entity_info(dim)
+
         return await self._run(_sync)
 
     async def dimension_radius(
-        self, cx, cy, chord_x, chord_y, leader_length=10.0, layer=None,
-        tol_upper=None, tol_lower=None, tol_mode="none", text_override=None,
+        self,
+        cx,
+        cy,
+        chord_x,
+        chord_y,
+        leader_length=10.0,
+        layer=None,
+        tol_upper=None,
+        tol_lower=None,
+        tol_mode="none",
+        text_override=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
@@ -1037,22 +1356,31 @@ class ComBackend(AutoCADBackend):
             _apply_dim_tolerance(dim, tol_upper, tol_lower, tol_mode, text_override)
             _regen()
             return _entity_info(dim)
+
         return await self._run(_sync)
 
     async def dimension_diameter(
-        self, x1, y1, x2, y2, leader_length=10.0, layer=None,
-        tol_upper=None, tol_lower=None, tol_mode="none", text_override=None,
+        self,
+        x1,
+        y1,
+        x2,
+        y2,
+        leader_length=10.0,
+        layer=None,
+        tol_upper=None,
+        tol_lower=None,
+        tol_mode="none",
+        text_override=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
-            dim = mspace.AddDimDiametric(
-                _apoint(x1, y1), _apoint(x2, y2), float(leader_length)
-            )
+            dim = mspace.AddDimDiametric(_apoint(x1, y1), _apoint(x2, y2), float(leader_length))
             if layer:
                 dim.Layer = layer
             _apply_dim_tolerance(dim, tol_upper, tol_lower, tol_mode, text_override)
             _regen()
             return _entity_info(dim)
+
         return await self._run(_sync)
 
     # ── entity modification ───────────────────────────────────────────────────
@@ -1063,6 +1391,7 @@ class ComBackend(AutoCADBackend):
             ent = doc.HandleToObject(handle)
             ent.Move(_apoint(0, 0, 0), _apoint(dx, dy, dz))
             return {"ok": True, "handle": handle}
+
         return await self._run(_sync)
 
     async def entity_copy(self, handle, dx, dy, dz=0.0) -> EntityInfo:
@@ -1072,6 +1401,7 @@ class ComBackend(AutoCADBackend):
             copy = ent.Copy()
             copy.Move(_apoint(0, 0, 0), _apoint(dx, dy, dz))
             return _entity_info(copy)
+
         return await self._run(_sync)
 
     async def entity_rotate(self, handle, base_x, base_y, angle_deg) -> dict:
@@ -1080,6 +1410,7 @@ class ComBackend(AutoCADBackend):
             ent = doc.HandleToObject(handle)
             ent.Rotate(_apoint(base_x, base_y), deg2rad(angle_deg))
             return {"ok": True, "handle": handle}
+
         return await self._run(_sync)
 
     async def entity_scale(self, handle, base_x, base_y, factor) -> dict:
@@ -1088,10 +1419,17 @@ class ComBackend(AutoCADBackend):
             ent = doc.HandleToObject(handle)
             ent.ScaleEntity(_apoint(base_x, base_y), float(factor))
             return {"ok": True, "handle": handle}
+
         return await self._run(_sync)
 
     async def entity_mirror(
-        self, handle, x1, y1, x2, y2, delete_original=False,
+        self,
+        handle,
+        x1,
+        y1,
+        x2,
+        y2,
+        delete_original=False,
     ) -> EntityInfo:
         def _sync():
             doc = _acad_doc()
@@ -1100,10 +1438,15 @@ class ComBackend(AutoCADBackend):
             if delete_original:
                 ent.Delete()
             return _entity_info(mirrored)
+
         return await self._run(_sync)
 
     async def entity_offset(
-        self, handle, distance, side_x=None, side_y=None,
+        self,
+        handle,
+        distance,
+        side_x=None,
+        side_y=None,
     ) -> EntityInfo:
         def _sync():
             doc = _acad_doc()
@@ -1151,6 +1494,7 @@ class ComBackend(AutoCADBackend):
                 except Exception:
                     pass
             return _entity_info(result[0])
+
         return await self._run(_sync)
 
     async def entity_delete(self, handle) -> dict:
@@ -1159,10 +1503,16 @@ class ComBackend(AutoCADBackend):
             ent = doc.HandleToObject(handle)
             ent.Delete()
             return {"ok": True, "deleted_handle": handle}
+
         return await self._run(_sync)
 
     async def entity_array_rectangular(
-        self, handle, rows, cols, row_spacing, col_spacing,
+        self,
+        handle,
+        rows,
+        cols,
+        row_spacing,
+        col_spacing,
     ) -> list[EntityInfo]:
         def _sync():
             _COM_STATE["batch_mode"] = True
@@ -1170,8 +1520,12 @@ class ComBackend(AutoCADBackend):
                 doc = _acad_doc()
                 ent = doc.HandleToObject(handle)
                 result = ent.ArrayRectangular(
-                    int(rows), int(cols), 1,  # numLevels=1
-                    float(row_spacing), float(col_spacing), 0.0,
+                    int(rows),
+                    int(cols),
+                    1,  # numLevels=1
+                    float(row_spacing),
+                    float(col_spacing),
+                    0.0,
                 )
                 entities = []
                 try:
@@ -1184,10 +1538,16 @@ class ComBackend(AutoCADBackend):
             finally:
                 _COM_STATE["batch_mode"] = False
                 _regen()
+
         return await self._run(_sync)
 
     async def entity_array_polar(
-        self, handle, count, fill_angle, center_x, center_y,
+        self,
+        handle,
+        count,
+        fill_angle,
+        center_x,
+        center_y,
     ) -> list[EntityInfo]:
         def _sync():
             _COM_STATE["batch_mode"] = True
@@ -1208,6 +1568,7 @@ class ComBackend(AutoCADBackend):
             finally:
                 _COM_STATE["batch_mode"] = False
                 _regen()
+
         return await self._run(_sync)
 
     # ── entity query / properties ──────────────────────────────────────────────
@@ -1217,11 +1578,17 @@ class ComBackend(AutoCADBackend):
             doc = _acad_doc()
             ent = doc.HandleToObject(handle)
             return _entity_info(ent)
+
         return await self._run(_sync)
 
     async def entity_set_properties(
-        self, handle, layer=None, color=None, linetype=None,
-        lineweight=None, visible=None,
+        self,
+        handle,
+        layer=None,
+        color=None,
+        linetype=None,
+        lineweight=None,
+        visible=None,
     ) -> dict:
         def _sync():
             doc = _acad_doc()
@@ -1238,10 +1605,15 @@ class ComBackend(AutoCADBackend):
             if visible is not None:
                 ent.Visible = bool(visible)
             return {"ok": True, "handle": handle}
+
         return await self._run(_sync)
 
     async def entity_edit_text(
-        self, handle, text=None, height=None, rotation=None,
+        self,
+        handle,
+        text=None,
+        height=None,
+        rotation=None,
     ) -> EntityInfo:
         def _sync():
             doc = _acad_doc()
@@ -1260,12 +1632,21 @@ class ComBackend(AutoCADBackend):
                 ent.Rotation = deg2rad(float(rotation))
             _regen()
             return _entity_info(ent)
+
         return await self._run(_sync)
 
     async def entity_edit_geometry(
-        self, handle, cx=None, cy=None, radius=None,
-        x1=None, y1=None, x2=None, y2=None,
-        start_angle=None, end_angle=None,
+        self,
+        handle,
+        cx=None,
+        cy=None,
+        radius=None,
+        x1=None,
+        y1=None,
+        x2=None,
+        y2=None,
+        start_angle=None,
+        end_angle=None,
     ) -> EntityInfo:
         def _sync():
             doc = _acad_doc()
@@ -1307,10 +1688,15 @@ class ComBackend(AutoCADBackend):
                 )
             _regen()
             return _entity_info(ent)
+
         return await self._run(_sync)
 
     async def entity_list(
-        self, type_filter=None, layer_filter=None, limit=200, offset=0,
+        self,
+        type_filter=None,
+        layer_filter=None,
+        limit=200,
+        offset=0,
     ) -> list[EntityInfo]:
         def _sync():
             mspace = _msp()
@@ -1341,6 +1727,7 @@ class ComBackend(AutoCADBackend):
                     log.debug("entity_list: skip entity at index %d: %s", i, exc)
                     continue
             return results
+
         return await self._run(_sync)
 
     # ── layer management ──────────────────────────────────────────────────────
@@ -1354,10 +1741,15 @@ class ComBackend(AutoCADBackend):
                 lyr = doc.Layers.Item(i)
                 layers.append(_layer_info(lyr, current))
             return layers
+
         return await self._run(_sync)
 
     async def layer_create(
-        self, name, color=7, linetype="Continuous", lineweight=-3,
+        self,
+        name,
+        color=7,
+        linetype="Continuous",
+        lineweight=-3,
     ) -> LayerInfo:
         def _sync():
             doc = _acad_doc()
@@ -1370,6 +1762,7 @@ class ComBackend(AutoCADBackend):
                 log.warning("Failed to set linetype '%s' on layer '%s': %s", linetype, name, exc)
             lyr.LineWeight = normalize_lineweight(lineweight)
             return _layer_info(lyr, doc.ActiveLayer.Name)
+
         return await self._run(_sync)
 
     async def layer_delete(self, name) -> dict:
@@ -1378,6 +1771,7 @@ class ComBackend(AutoCADBackend):
             lyr = doc.Layers.Item(name)
             lyr.Delete()
             return {"ok": True, "deleted": name}
+
         return await self._run(_sync)
 
     async def layer_set_current(self, name) -> dict:
@@ -1386,10 +1780,15 @@ class ComBackend(AutoCADBackend):
             lyr = doc.Layers.Item(name)
             doc.ActiveLayer = lyr
             return {"ok": True, "current_layer": name}
+
         return await self._run(_sync)
 
     async def layer_modify(
-        self, name, color=None, linetype=None, lineweight=None,
+        self,
+        name,
+        color=None,
+        linetype=None,
+        lineweight=None,
     ) -> LayerInfo:
         def _sync():
             doc = _acad_doc()
@@ -1402,6 +1801,7 @@ class ComBackend(AutoCADBackend):
             if lineweight is not None:
                 lyr.LineWeight = normalize_lineweight(lineweight)
             return _layer_info(lyr, doc.ActiveLayer.Name)
+
         return await self._run(_sync)
 
     async def layer_freeze(self, name) -> dict:
@@ -1410,6 +1810,7 @@ class ComBackend(AutoCADBackend):
             lyr = doc.Layers.Item(name)
             lyr.Freeze = True
             return {"ok": True, "layer": name, "frozen": True}
+
         return await self._run(_sync)
 
     async def layer_thaw(self, name) -> dict:
@@ -1418,6 +1819,7 @@ class ComBackend(AutoCADBackend):
             lyr = doc.Layers.Item(name)
             lyr.Freeze = False
             return {"ok": True, "layer": name, "frozen": False}
+
         return await self._run(_sync)
 
     async def layer_lock(self, name) -> dict:
@@ -1426,6 +1828,7 @@ class ComBackend(AutoCADBackend):
             lyr = doc.Layers.Item(name)
             lyr.Lock = True
             return {"ok": True, "layer": name, "locked": True}
+
         return await self._run(_sync)
 
     async def layer_unlock(self, name) -> dict:
@@ -1434,6 +1837,7 @@ class ComBackend(AutoCADBackend):
             lyr = doc.Layers.Item(name)
             lyr.Lock = False
             return {"ok": True, "layer": name, "locked": False}
+
         return await self._run(_sync)
 
     async def layer_hide(self, name) -> dict:
@@ -1442,6 +1846,7 @@ class ComBackend(AutoCADBackend):
             lyr = doc.Layers.Item(name)
             lyr.LayerOn = False
             return {"ok": True, "layer": name, "visible": False}
+
         return await self._run(_sync)
 
     async def layer_show(self, name) -> dict:
@@ -1450,6 +1855,7 @@ class ComBackend(AutoCADBackend):
             lyr = doc.Layers.Item(name)
             lyr.LayerOn = True
             return {"ok": True, "layer": name, "visible": True}
+
         return await self._run(_sync)
 
     # ── linetype management ───────────────────────────────────────────────────
@@ -1458,6 +1864,7 @@ class ComBackend(AutoCADBackend):
         def _sync():
             doc = _acad_doc()
             return [doc.Linetypes.Item(i).Name for i in range(doc.Linetypes.Count)]
+
         return await self._run(_sync)
 
     async def linetype_load(self, name, file=None) -> dict:
@@ -1471,8 +1878,7 @@ class ComBackend(AutoCADBackend):
             app = _acad_app()
             doc = _acad_doc()
 
-            existing = {doc.Linetypes.Item(i).Name.lower()
-                        for i in range(doc.Linetypes.Count)}
+            existing = {doc.Linetypes.Item(i).Name.lower() for i in range(doc.Linetypes.Count)}
             if name.lower() in existing:
                 return {"ok": True, "name": name, "already_loaded": True}
 
@@ -1502,8 +1908,7 @@ class ComBackend(AutoCADBackend):
                 except Exception as exc:
                     log.debug("FILEDIA restore failed: %s", exc)
 
-            after = {doc.Linetypes.Item(i).Name.lower()
-                     for i in range(doc.Linetypes.Count)}
+            after = {doc.Linetypes.Item(i).Name.lower() for i in range(doc.Linetypes.Count)}
             if name.lower() not in after:
                 raise RuntimeError(
                     f"Failed to load linetype '{name}' from '{lin_file}'. "
@@ -1511,6 +1916,7 @@ class ComBackend(AutoCADBackend):
                     "on AutoCAD's support path."
                 )
             return {"ok": True, "name": name, "file": lin_file}
+
         return await self._run(_sync)
 
     # ── block operations ──────────────────────────────────────────────────────
@@ -1524,7 +1930,8 @@ class ComBackend(AutoCADBackend):
                 if blk.Name.startswith("*"):  # skip *Model_Space, *Paper_Space, etc.
                     continue
                 attr_count = sum(
-                    1 for j in range(blk.Count)
+                    1
+                    for j in range(blk.Count)
                     if blk.Item(j).ObjectName == "AcDbAttributeDefinition"
                 )
                 # S3: populate description from the block definition's .Comments.
@@ -1532,26 +1939,39 @@ class ComBackend(AutoCADBackend):
                     description = blk.Comments or ""
                 except Exception:
                     description = ""
-                blocks.append(BlockInfo(
-                    name=blk.Name,
-                    origin=(blk.Origin[0], blk.Origin[1]),
-                    attribute_count=attr_count,
-                    entity_count=blk.Count,
-                    is_xref=bool(blk.IsXRef),
-                    description=description,
-                ))
+                blocks.append(
+                    BlockInfo(
+                        name=blk.Name,
+                        origin=(blk.Origin[0], blk.Origin[1]),
+                        attribute_count=attr_count,
+                        entity_count=blk.Count,
+                        is_xref=bool(blk.IsXRef),
+                        description=description,
+                    )
+                )
             return blocks
+
         return await self._run(_sync)
 
     async def block_insert(
-        self, name, x, y, scale_x=1.0, scale_y=1.0, rotation=0.0,
-        attributes=None, layer=None,
+        self,
+        name,
+        x,
+        y,
+        scale_x=1.0,
+        scale_y=1.0,
+        rotation=0.0,
+        attributes=None,
+        layer=None,
     ) -> EntityInfo:
         def _sync():
             mspace = _msp()
             ref = mspace.InsertBlock(
-                _apoint(x, y), name,
-                float(scale_x), float(scale_y), 1.0,
+                _apoint(x, y),
+                name,
+                float(scale_x),
+                float(scale_y),
+                1.0,
                 deg2rad(rotation),
             )
             if layer:
@@ -1566,6 +1986,7 @@ class ComBackend(AutoCADBackend):
                 except Exception as exc:
                     log.debug("Block insert: GetAttributes or attribute setting failed: %s", exc)
             return _entity_info(ref)
+
         return await self._run(_sync)
 
     async def block_explode(self, handle) -> dict:
@@ -1574,6 +1995,7 @@ class ComBackend(AutoCADBackend):
             ent = doc.HandleToObject(handle)
             ent.Explode()
             return {"ok": True, "exploded_handle": handle}
+
         return await self._run(_sync)
 
     async def block_get_attributes(self, handle) -> dict:
@@ -1585,6 +2007,7 @@ class ComBackend(AutoCADBackend):
             for attr in attrs:
                 result[attr.TagString] = attr.TextString
             return result
+
         return await self._run(_sync)
 
     async def block_set_attributes(self, handle, attributes) -> dict:
@@ -1599,15 +2022,20 @@ class ComBackend(AutoCADBackend):
                     attr.TextString = str(attributes[tag])
                     updated.append(tag)
             return {"ok": True, "updated_tags": updated}
+
         return await self._run(_sync)
 
     async def block_create_from_entities(
-        self, name, handles, base_x=0.0, base_y=0.0,
+        self,
+        name,
+        handles,
+        base_x=0.0,
+        base_y=0.0,
     ) -> dict:
         return {
             "ok": False,
             "error": "block_create_from_entities not supported in COM backend. "
-                     "Use system_run_command with _BLOCK instead.",
+            "Use system_run_command with _BLOCK instead.",
         }
 
     # ── analysis / query ──────────────────────────────────────────────────────
@@ -1632,10 +2060,15 @@ class ComBackend(AutoCADBackend):
                 "by_type": dict(sorted(type_counts.items(), key=lambda x: -x[1])),
                 "by_layer": dict(sorted(layer_counts.items(), key=lambda x: -x[1])),
             }
+
         return await self._run(_sync)
 
     async def analysis_entities_in_region(
-        self, x1, y1, x2, y2,
+        self,
+        x1,
+        y1,
+        x2,
+        y2,
     ) -> list[EntityInfo]:
         def _sync():
             doc = _acad_doc()
@@ -1656,6 +2089,7 @@ class ComBackend(AutoCADBackend):
                     ss.Delete()
                 except Exception as exc:
                     log.debug("SelectionSet cleanup failed: %s", exc)
+
         return await self._run(_sync)
 
     async def analysis_measure_distance(self, x1, y1, x2, y2) -> float:
@@ -1679,6 +2113,7 @@ class ComBackend(AutoCADBackend):
             except Exception as exc:
                 log.debug("analysis_bounding_box: Database Extmin/Extmax read failed: %s", exc)
                 return {"error": str(exc)}
+
         return await self._run(_sync)
 
     async def analysis_select_by_layer(self, layer_name) -> list[EntityInfo]:
@@ -1687,7 +2122,7 @@ class ComBackend(AutoCADBackend):
             ss_name = f"_BYLAYER_{uuid.uuid4().hex[:8]}"
             ss = doc.SelectionSets.Add(ss_name)
             try:
-                ft = _ai([8])   # group code 8 = layer
+                ft = _ai([8])  # group code 8 = layer
                 fv = win32com.client.VARIANT(
                     pythoncom.VT_ARRAY | pythoncom.VT_VARIANT, [layer_name]
                 )
@@ -1698,6 +2133,7 @@ class ComBackend(AutoCADBackend):
                     ss.Delete()
                 except Exception as exc:
                     log.debug("SelectionSet cleanup failed: %s", exc)
+
         return await self._run(_sync)
 
     async def analysis_select_by_type(self, entity_type) -> list[EntityInfo]:
@@ -1715,6 +2151,7 @@ class ComBackend(AutoCADBackend):
                     log.debug("analysis_select_by_type: skip entity at index %d: %s", i, exc)
                     continue
             return results
+
         return await self._run(_sync)
 
     async def selection_get(self) -> dict:
@@ -1761,7 +2198,7 @@ class ComBackend(AutoCADBackend):
                 "ok": True,
                 "count": len(handles),
                 "handles": handles,
-                "entities": entities,   # _dc()-converted at the server layer
+                "entities": entities,  # _dc()-converted at the server layer
                 "pickfirst": pickfirst,
             }
             if not handles:
@@ -1771,7 +2208,7 @@ class ComBackend(AutoCADBackend):
                     "ensure PICKFIRST=1."
                     if pickfirst is not False
                     else "PICKFIRST is 0; the noun/verb grip selection is disabled. "
-                         "Set PICKFIRST=1 (system_set_variable) and re-select."
+                    "Set PICKFIRST=1 (system_set_variable) and re-select."
                 )
             return result
 
@@ -1785,6 +2222,7 @@ class ComBackend(AutoCADBackend):
             app.ZoomExtents()
             _acad_doc().Regen(0)
             return {"ok": True}
+
         return await self._run(_sync)
 
     async def view_zoom_window(self, x1, y1, x2, y2) -> dict:
@@ -1792,6 +2230,7 @@ class ComBackend(AutoCADBackend):
             app = _acad_app()
             app.ZoomWindow(_apoint(x1, y1), _apoint(x2, y2))
             return {"ok": True}
+
         return await self._run(_sync)
 
     async def view_screenshot(self) -> bytes | None:
@@ -1800,6 +2239,7 @@ class ComBackend(AutoCADBackend):
             if hwnd is None:
                 return None
             return _capture_window(hwnd)
+
         return await self._run(_sync)
 
     # ── transactions ──────────────────────────────────────────────────────────
@@ -1812,6 +2252,7 @@ class ComBackend(AutoCADBackend):
             doc = _acad_doc()
             doc.StartUndoMark()
             return {"ok": True, "message": "Transaction begun (AutoCAD undo mark set)"}
+
         result = await self._run(_sync)
         self._transaction_active = True
         return result
@@ -1821,6 +2262,7 @@ class ComBackend(AutoCADBackend):
             doc = _acad_doc()
             doc.EndUndoMark()
             return {"ok": True, "message": "Transaction committed"}
+
         # R16: clear the flag even if _run raises, so a failed commit can't leave
         # _transaction_active permanently stale.
         try:
@@ -1836,6 +2278,7 @@ class ComBackend(AutoCADBackend):
             # SendCommand that could deadlock if a command/prompt is active.
             self._safe_send_command(doc, "_UNDO B")
             return {"ok": True, "message": "Transaction rolled back"}
+
         try:
             return await self._run(_sync)
         finally:
@@ -1845,6 +2288,7 @@ class ComBackend(AutoCADBackend):
 
     async def system_status(self) -> dict:
         tx_active = self._transaction_active
+
         def _sync():
             try:
                 app = _acad_app()
@@ -1863,19 +2307,25 @@ class ComBackend(AutoCADBackend):
                     # does NOT create 3D solids, so the old "all_entity_types"
                     # claim was false — report "entities_2d" instead.
                     "capabilities": [
-                        "live_control", "screenshot", "transactions",
-                        "com_api", "lisp_execution", "entities_2d",
+                        "live_control",
+                        "screenshot",
+                        "transactions",
+                        "com_api",
+                        "lisp_execution",
+                        "entities_2d",
                     ],
                 }
             except Exception as exc:
                 log.debug("system_status: _acad_app check failed: %s", exc)
                 return {"backend": "com", "connected": False, "error": str(exc)}
+
         return await self._run(_sync)
 
     async def system_get_variable(self, name) -> Any:
         def _sync():
             app = _acad_app()
             return app.GetVariable(name)
+
         return await self._run(_sync)
 
     async def system_set_variable(self, name, value) -> dict:
@@ -1897,6 +2347,7 @@ class ComBackend(AutoCADBackend):
                 log.debug("set_variable type probe for %s failed: %s", name, exc)
             app.SetVariable(name, coerced)
             return {"ok": True, "variable": name, "value": coerced}
+
         return await self._run(_sync)
 
     async def system_run_command(self, command) -> dict:
@@ -1920,6 +2371,7 @@ class ComBackend(AutoCADBackend):
             cmd = command if command.endswith("\n") else command + "\n"
             doc.SendCommand(cmd)
             return {"ok": True, "command": command}
+
         return await self._run(_sync)
 
     async def system_run_lisp(self, expression) -> dict:
@@ -1941,10 +2393,7 @@ class ComBackend(AutoCADBackend):
             # N6: SendCommand is void-returning, so the value can't be read from its
             # return. Stash it in USERS1 and read it back after the form completes
             # (CMDACTIVE-polled by _safe_send_command).
-            wrapped = (
-                '(vl-load-com)'
-                f'(setvar "USERS1" (vl-princ-to-string (progn {expression})))'
-            )
+            wrapped = f'(vl-load-com)(setvar "USERS1" (vl-princ-to-string (progn {expression})))'
             self._safe_send_command(doc, wrapped)
             try:
                 result = app.GetVariable("USERS1")
@@ -1955,6 +2404,7 @@ class ComBackend(AutoCADBackend):
                 "expression": expression,
                 "result": str(result) if result not in (None, "") else "nil",
             }
+
         return await self._run(_sync)
 
     # ── corner ops ──────────────────────────────────────────────────────────
@@ -2015,17 +2465,19 @@ class ComBackend(AutoCADBackend):
     async def entity_trim(self, target_handle, cutter_handle, keep_x, keep_y) -> EntityInfo:
         def _sync():
             doc = _acad_doc()
-            cmd = (
-                f'_TRIM\n(handent "{cutter_handle}")\n\n'
-                f'{float(keep_x)},{float(keep_y)}\n\n'
-            )
+            cmd = f'_TRIM\n(handent "{cutter_handle}")\n\n{float(keep_x)},{float(keep_y)}\n\n'
             self._safe_send_command(doc, cmd)
             ent = doc.HandleToObject(target_handle)
             return _entity_info(ent)
+
         return await self._run(_sync)
 
     async def entity_extend(
-        self, target_handle, boundary_handle, end_x=None, end_y=None,
+        self,
+        target_handle,
+        boundary_handle,
+        end_x=None,
+        end_y=None,
     ) -> EntityInfo:
         def _sync():
             doc = _acad_doc()
@@ -2047,12 +2499,10 @@ class ComBackend(AutoCADBackend):
                     ex, ey = 0.0, 0.0
             else:
                 ex, ey = float(end_x), float(end_y)
-            cmd = (
-                f'_EXTEND\n(handent "{boundary_handle}")\n\n'
-                f'{ex},{ey}\n\n'
-            )
+            cmd = f'_EXTEND\n(handent "{boundary_handle}")\n\n{ex},{ey}\n\n'
             self._safe_send_command(doc, cmd)
             return _entity_info(doc.HandleToObject(target_handle))
+
         return await self._run(_sync)
 
     async def entity_fillet(self, handle1, handle2, radius, trim=True) -> EntityInfo:
@@ -2060,7 +2510,7 @@ class ComBackend(AutoCADBackend):
             doc = _acad_doc()
             t = "T" if trim else "N"  # T=Trim, N=No-trim
             cmd = (
-                f'_FILLET\n_R\n{float(radius)}\n_T\n_{t}\n'
+                f"_FILLET\n_R\n{float(radius)}\n_T\n_{t}\n"
                 f'(handent "{handle1}")\n(handent "{handle2}")\n'
             )
             new_handles = self._safe_send_command(doc, cmd)
@@ -2074,10 +2524,16 @@ class ComBackend(AutoCADBackend):
                 except Exception:
                     continue
             return _entity_info(doc.HandleToObject(handle1))
+
         return await self._run(_sync)
 
     async def entity_chamfer(
-        self, handle1, handle2, dist1, dist2=None, trim=True,
+        self,
+        handle1,
+        handle2,
+        dist1,
+        dist2=None,
+        trim=True,
     ) -> EntityInfo:
         def _sync():
             doc = _acad_doc()
@@ -2085,7 +2541,7 @@ class ComBackend(AutoCADBackend):
             d2 = float(dist1 if dist2 is None else dist2)
             t = "T" if trim else "N"
             cmd = (
-                f'_CHAMFER\n_D\n{d1}\n{d2}\n_T\n_{t}\n'
+                f"_CHAMFER\n_D\n{d1}\n{d2}\n_T\n_{t}\n"
                 f'(handent "{handle1}")\n(handent "{handle2}")\n'
             )
             new_handles = self._safe_send_command(doc, cmd)
@@ -2097,6 +2553,7 @@ class ComBackend(AutoCADBackend):
                 except Exception:
                     continue
             return _entity_info(doc.HandleToObject(handle1))
+
         return await self._run(_sync)
 
     # ── premium meta-tools live on AutoCADBackend (base.py) and are shared by
@@ -2113,4 +2570,5 @@ class ComBackend(AutoCADBackend):
             _apply_entity_attrs(xline, layer, None, None)
             _regen()
             return _entity_info(xline)
+
         return await self._run(_sync)

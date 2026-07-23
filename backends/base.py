@@ -26,9 +26,9 @@ if TYPE_CHECKING:
 @dataclass
 class EntityInfo:
     handle: str
-    type: str          # e.g. "LINE", "CIRCLE", "ARC"
+    type: str  # e.g. "LINE", "CIRCLE", "ARC"
     layer: str
-    color: int         # ACI color (256=ByLayer)
+    color: int  # ACI color (256=ByLayer)
     linetype: str
     visible: bool
     properties: dict = field(default_factory=dict)
@@ -121,12 +121,12 @@ def normalize_lineweight(lw: float | int | None) -> int | None:
     except (TypeError, ValueError):
         return lw  # leave exotic / already-int values untouched
     if v < 0:
-        return int(round(v))           # -1/-2/-3 sentinels
+        return int(round(v))  # -1/-2/-3 sentinels
     if v == 0:
         return 0
     if v <= 2.05:
-        return int(round(v * 100.0))   # millimetres -> hundredths
-    return int(round(v))               # already hundredths
+        return int(round(v * 100.0))  # millimetres -> hundredths
+    return int(round(v))  # already hundredths
 
 
 # ---------------------------------------------------------------------------
@@ -175,10 +175,86 @@ class AutoCADBackend(ABC):
     async def drawing_export_dxf(self, path: str) -> dict: ...
 
     @abstractmethod
-    async def drawing_export_pdf(self, path: str) -> dict: ...
+    async def drawing_export_pdf(self, path: str, layout: str | None = None) -> dict: ...
 
     @abstractmethod
     async def drawing_purge(self) -> dict: ...
+
+    # ── layouts / paper space ────────────────────────────────────────────────
+    @abstractmethod
+    async def layout_list(self) -> dict:
+        """Return {ok, layouts: [names], current: name} incl. 'Model'."""
+        ...
+
+    @abstractmethod
+    async def layout_create(self, name: str) -> dict:
+        """Create a new paper-space layout."""
+        ...
+
+    @abstractmethod
+    async def layout_set_current(self, name: str) -> dict:
+        """Activate a layout tab ('Model' or a paper-space layout name)."""
+        ...
+
+    @abstractmethod
+    async def viewport_create(
+        self,
+        layout: str,
+        center_x: float,
+        center_y: float,
+        width: float,
+        height: float,
+        view_center_x: float,
+        view_center_y: float,
+        scale: float = 1.0,
+    ) -> dict:
+        """Place a scaled model-space viewport on a paper-space layout.
+
+        ``scale`` is paper:model (1.0 = 1:1, 0.5 = 1:2). The viewport shows
+        the model window centered at (view_center_x, view_center_y) with
+        view height = height / scale.
+        """
+        ...
+
+    # ── 3D solids (opt-in; native on live AutoCAD only) ─────────────────────
+    @abstractmethod
+    async def solid_box(
+        self, cx: float, cy: float, cz: float, length: float, width: float, height: float
+    ) -> dict:
+        """Create a 3D solid box centered at (cx, cy, cz)."""
+        ...
+
+    @abstractmethod
+    async def solid_cylinder(
+        self, cx: float, cy: float, cz: float, radius: float, height: float
+    ) -> dict:
+        """Create a 3D solid cylinder centered at (cx, cy, cz)."""
+        ...
+
+    @abstractmethod
+    async def solid_extrude(
+        self, profile_handle: str, height: float, taper_angle: float = 0.0
+    ) -> dict:
+        """Extrude a closed profile (circle/closed polyline) into a solid."""
+        ...
+
+    @abstractmethod
+    async def solid_revolve(
+        self,
+        profile_handle: str,
+        axis_x1: float,
+        axis_y1: float,
+        axis_x2: float,
+        axis_y2: float,
+        angle: float = 360.0,
+    ) -> dict:
+        """Revolve a closed profile around an axis into a solid."""
+        ...
+
+    @abstractmethod
+    async def solid_boolean(self, target_handle: str, tool_handle: str, operation: str) -> dict:
+        """Boolean two solids: operation is union | subtract | intersect."""
+        ...
 
     @abstractmethod
     async def drawing_audit(self) -> dict: ...
@@ -195,43 +271,72 @@ class AutoCADBackend(ABC):
     # ── entity creation ──────────────────────────────────────────────────────
     @abstractmethod
     async def entity_create_line(
-        self, x1: float, y1: float, x2: float, y2: float,
-        z1: float = 0.0, z2: float = 0.0,
-        layer: str | None = None, color: int | None = None,
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        z1: float = 0.0,
+        z2: float = 0.0,
+        layer: str | None = None,
+        color: int | None = None,
         linetype: str | None = None,
     ) -> EntityInfo: ...
 
     @abstractmethod
     async def entity_create_circle(
-        self, cx: float, cy: float, radius: float,
-        layer: str | None = None, color: int | None = None,
+        self,
+        cx: float,
+        cy: float,
+        radius: float,
+        layer: str | None = None,
+        color: int | None = None,
     ) -> EntityInfo: ...
 
     @abstractmethod
     async def entity_create_arc(
-        self, cx: float, cy: float, radius: float,
-        start_angle: float, end_angle: float,
-        layer: str | None = None, color: int | None = None,
+        self,
+        cx: float,
+        cy: float,
+        radius: float,
+        start_angle: float,
+        end_angle: float,
+        layer: str | None = None,
+        color: int | None = None,
     ) -> EntityInfo: ...
 
     @abstractmethod
     async def entity_create_polyline(
-        self, points: list[list[float]], closed: bool = False,
-        layer: str | None = None, color: int | None = None,
+        self,
+        points: list[list[float]],
+        closed: bool = False,
+        layer: str | None = None,
+        color: int | None = None,
     ) -> EntityInfo: ...
 
     @abstractmethod
     async def entity_create_text(
-        self, text: str, x: float, y: float,
-        height: float = 2.5, rotation: float = 0.0,
-        layer: str | None = None, color: int | None = None,
+        self,
+        text: str,
+        x: float,
+        y: float,
+        height: float = 2.5,
+        rotation: float = 0.0,
+        layer: str | None = None,
+        color: int | None = None,
     ) -> EntityInfo: ...
 
     @abstractmethod
     async def entity_create_mtext(
-        self, text: str, x: float, y: float,
-        width: float = 100.0, height: float = 2.5, rotation: float = 0.0,
-        layer: str | None = None, color: int | None = None,
+        self,
+        text: str,
+        x: float,
+        y: float,
+        width: float = 100.0,
+        height: float = 2.5,
+        rotation: float = 0.0,
+        layer: str | None = None,
+        color: int | None = None,
     ) -> EntityInfo: ...
 
     @abstractmethod
@@ -261,42 +366,67 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def entity_create_hatch(
-        self, pattern: str, boundary_points: list[list[float]],
-        scale: float = 1.0, angle: float = 0.0,
-        layer: str | None = None, color: int | None = None,
+        self,
+        pattern: str,
+        boundary_points: list[list[float]],
+        scale: float = 1.0,
+        angle: float = 0.0,
+        layer: str | None = None,
+        color: int | None = None,
     ) -> EntityInfo: ...
 
     @abstractmethod
     async def entity_create_spline(
-        self, fit_points: list[list[float]],
-        layer: str | None = None, color: int | None = None,
+        self,
+        fit_points: list[list[float]],
+        layer: str | None = None,
+        color: int | None = None,
     ) -> EntityInfo: ...
 
     @abstractmethod
     async def entity_create_ellipse(
-        self, cx: float, cy: float,
-        major_x: float, major_y: float, ratio: float = 0.5,
-        layer: str | None = None, color: int | None = None,
+        self,
+        cx: float,
+        cy: float,
+        major_x: float,
+        major_y: float,
+        ratio: float = 0.5,
+        layer: str | None = None,
+        color: int | None = None,
     ) -> EntityInfo: ...
 
     @abstractmethod
     async def entity_create_point(
-        self, x: float, y: float,
-        layer: str | None = None, color: int | None = None,
+        self,
+        x: float,
+        y: float,
+        layer: str | None = None,
+        color: int | None = None,
     ) -> EntityInfo: ...
 
     @abstractmethod
     async def entity_create_block_ref(
-        self, name: str, x: float, y: float,
-        scale_x: float = 1.0, scale_y: float = 1.0, rotation: float = 0.0,
+        self,
+        name: str,
+        x: float,
+        y: float,
+        scale_x: float = 1.0,
+        scale_y: float = 1.0,
+        rotation: float = 0.0,
         layer: str | None = None,
     ) -> EntityInfo: ...
 
     # ── dimensions ───────────────────────────────────────────────────────────
     @abstractmethod
     async def dimension_linear(
-        self, x1: float, y1: float, x2: float, y2: float,
-        dim_x: float, dim_y: float, rotation: float = 0.0,
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        dim_x: float,
+        dim_y: float,
+        rotation: float = 0.0,
         layer: str | None = None,
         tol_upper: float | None = None,
         tol_lower: float | None = None,
@@ -306,23 +436,39 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def dimension_aligned(
-        self, x1: float, y1: float, x2: float, y2: float,
-        dim_x: float, dim_y: float,
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        dim_x: float,
+        dim_y: float,
         layer: str | None = None,
     ) -> EntityInfo: ...
 
     @abstractmethod
     async def dimension_angular(
-        self, vx: float, vy: float,
-        x1: float, y1: float, x2: float, y2: float,
-        tx: float, ty: float,
+        self,
+        vx: float,
+        vy: float,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        tx: float,
+        ty: float,
         layer: str | None = None,
     ) -> EntityInfo: ...
 
     @abstractmethod
     async def dimension_radius(
-        self, cx: float, cy: float, chord_x: float, chord_y: float,
-        leader_length: float = 10.0, layer: str | None = None,
+        self,
+        cx: float,
+        cy: float,
+        chord_x: float,
+        chord_y: float,
+        leader_length: float = 10.0,
+        layer: str | None = None,
         tol_upper: float | None = None,
         tol_lower: float | None = None,
         tol_mode: str = "none",
@@ -331,8 +477,13 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def dimension_diameter(
-        self, x1: float, y1: float, x2: float, y2: float,
-        leader_length: float = 10.0, layer: str | None = None,
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        leader_length: float = 10.0,
+        layer: str | None = None,
         tol_upper: float | None = None,
         tol_lower: float | None = None,
         tol_mode: str = "none",
@@ -344,29 +495,46 @@ class AutoCADBackend(ABC):
     async def entity_move(self, handle: str, dx: float, dy: float, dz: float = 0.0) -> dict: ...
 
     @abstractmethod
-    async def entity_copy(self, handle: str, dx: float, dy: float, dz: float = 0.0) -> EntityInfo: ...
+    async def entity_copy(
+        self, handle: str, dx: float, dy: float, dz: float = 0.0
+    ) -> EntityInfo: ...
 
     @abstractmethod
     async def entity_rotate(
-        self, handle: str, base_x: float, base_y: float, angle_deg: float,
+        self,
+        handle: str,
+        base_x: float,
+        base_y: float,
+        angle_deg: float,
     ) -> dict: ...
 
     @abstractmethod
     async def entity_scale(
-        self, handle: str, base_x: float, base_y: float, factor: float,
+        self,
+        handle: str,
+        base_x: float,
+        base_y: float,
+        factor: float,
     ) -> dict: ...
 
     @abstractmethod
     async def entity_mirror(
-        self, handle: str,
-        x1: float, y1: float, x2: float, y2: float,
+        self,
+        handle: str,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
         delete_original: bool = False,
     ) -> EntityInfo: ...
 
     @abstractmethod
     async def entity_offset(
-        self, handle: str, distance: float,
-        side_x: float | None = None, side_y: float | None = None,
+        self,
+        handle: str,
+        distance: float,
+        side_x: float | None = None,
+        side_y: float | None = None,
     ) -> EntityInfo: ...
 
     @abstractmethod
@@ -374,22 +542,32 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def entity_array_rectangular(
-        self, handle: str,
-        rows: int, cols: int, row_spacing: float, col_spacing: float,
+        self,
+        handle: str,
+        rows: int,
+        cols: int,
+        row_spacing: float,
+        col_spacing: float,
     ) -> list[EntityInfo]: ...
 
     @abstractmethod
     async def entity_array_polar(
-        self, handle: str,
-        count: int, fill_angle: float,
-        center_x: float, center_y: float,
+        self,
+        handle: str,
+        count: int,
+        fill_angle: float,
+        center_x: float,
+        center_y: float,
     ) -> list[EntityInfo]: ...
 
     # ── corner operations (trim/extend/fillet/chamfer) ───────────────────────
     @abstractmethod
     async def entity_trim(
-        self, target_handle: str, cutter_handle: str,
-        keep_x: float, keep_y: float,
+        self,
+        target_handle: str,
+        cutter_handle: str,
+        keep_x: float,
+        keep_y: float,
     ) -> EntityInfo:
         """Trim `target` against `cutter`; keep the segment containing
         (keep_x, keep_y). Raises ToolError if no intersection."""
@@ -397,8 +575,11 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def entity_extend(
-        self, target_handle: str, boundary_handle: str,
-        end_x: float | None = None, end_y: float | None = None,
+        self,
+        target_handle: str,
+        boundary_handle: str,
+        end_x: float | None = None,
+        end_y: float | None = None,
     ) -> EntityInfo:
         """Extend `target` to meet `boundary`. If `end_x/y` is None, the
         target endpoint nearest the boundary is auto-selected."""
@@ -406,7 +587,10 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def entity_fillet(
-        self, handle1: str, handle2: str, radius: float,
+        self,
+        handle1: str,
+        handle2: str,
+        radius: float,
         trim: bool = True,
     ) -> EntityInfo:
         """Fillet two entities with the given radius. Returns the new ARC.
@@ -416,8 +600,11 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def entity_chamfer(
-        self, handle1: str, handle2: str,
-        dist1: float, dist2: float | None = None,
+        self,
+        handle1: str,
+        handle2: str,
+        dist1: float,
+        dist2: float | None = None,
         trim: bool = True,
     ) -> EntityInfo:
         """Chamfer two entities. When `dist2` is None it defaults to `dist1`
@@ -430,7 +617,8 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def entity_set_properties(
-        self, handle: str,
+        self,
+        handle: str,
         layer: str | None = None,
         color: int | None = None,
         linetype: str | None = None,
@@ -440,7 +628,8 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def entity_edit_text(
-        self, handle: str,
+        self,
+        handle: str,
         text: str | None = None,
         height: float | None = None,
         rotation: float | None = None,
@@ -452,12 +641,17 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def entity_edit_geometry(
-        self, handle: str,
-        cx: float | None = None, cy: float | None = None,
+        self,
+        handle: str,
+        cx: float | None = None,
+        cy: float | None = None,
         radius: float | None = None,
-        x1: float | None = None, y1: float | None = None,
-        x2: float | None = None, y2: float | None = None,
-        start_angle: float | None = None, end_angle: float | None = None,
+        x1: float | None = None,
+        y1: float | None = None,
+        x2: float | None = None,
+        y2: float | None = None,
+        start_angle: float | None = None,
+        end_angle: float | None = None,
     ) -> EntityInfo:
         """Edit the defining geometry of an existing entity in place.
         - CIRCLE: cx / cy / radius
@@ -481,7 +675,8 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def layer_create(
-        self, name: str,
+        self,
+        name: str,
         color: int = 7,
         linetype: str = "Continuous",
         lineweight: float = -3,
@@ -495,7 +690,8 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def layer_modify(
-        self, name: str,
+        self,
+        name: str,
         color: int | None = None,
         linetype: str | None = None,
         lineweight: float | None = None,
@@ -525,7 +721,9 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def linetype_load(
-        self, name: str, file: str | None = None,
+        self,
+        name: str,
+        file: str | None = None,
     ) -> dict: ...
 
     # ── block operations ─────────────────────────────────────────────────────
@@ -534,8 +732,13 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def block_insert(
-        self, name: str, x: float, y: float,
-        scale_x: float = 1.0, scale_y: float = 1.0, rotation: float = 0.0,
+        self,
+        name: str,
+        x: float,
+        y: float,
+        scale_x: float = 1.0,
+        scale_y: float = 1.0,
+        rotation: float = 0.0,
         attributes: dict | None = None,
         layer: str | None = None,
     ) -> EntityInfo: ...
@@ -551,8 +754,11 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def block_create_from_entities(
-        self, name: str, handles: list[str],
-        base_x: float = 0.0, base_y: float = 0.0,
+        self,
+        name: str,
+        handles: list[str],
+        base_x: float = 0.0,
+        base_y: float = 0.0,
     ) -> dict: ...
 
     # ── analysis / query ─────────────────────────────────────────────────────
@@ -561,12 +767,20 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def analysis_entities_in_region(
-        self, x1: float, y1: float, x2: float, y2: float,
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
     ) -> list[EntityInfo]: ...
 
     @abstractmethod
     async def analysis_measure_distance(
-        self, x1: float, y1: float, x2: float, y2: float,
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
     ) -> float: ...
 
     @abstractmethod
@@ -607,7 +821,11 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def view_zoom_window(
-        self, x1: float, y1: float, x2: float, y2: float,
+        self,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
     ) -> dict: ...
 
     @abstractmethod
@@ -690,7 +908,8 @@ class AutoCADBackend(ABC):
         return result
 
     async def drawing_plan(
-        self, intent: str,
+        self,
+        intent: str,
         sheet_size: SheetSize = "A3",
         scale: float = 1.0,
         layer_set_id: LayerSetId = "mech",
@@ -763,7 +982,8 @@ class AutoCADBackend(ABC):
         return plan
 
     async def drawing_critique(
-        self, focus: list[CritiqueFocus] | None = None,
+        self,
+        focus: list[CritiqueFocus] | None = None,
     ) -> list[Issue]:
         """Run premium-quality geometric checks; return zero issues before
         `drawing_finalize`. `focus=None` runs all checks. (N8: this does NOT
@@ -781,8 +1001,11 @@ class AutoCADBackend(ABC):
         return plan.to_dict() if plan is not None else None
 
     async def point_from_snap(
-        self, handle: str, snap: SnapType,
-        ref_x: float | None = None, ref_y: float | None = None,
+        self,
+        handle: str,
+        snap: SnapType,
+        ref_x: float | None = None,
+        ref_y: float | None = None,
     ) -> tuple[float, float]:
         """Return a deterministic snap point on `handle`.
         snap ∈ {end, mid, center, quad, perp, near}. For `near/perp`,
@@ -791,27 +1014,20 @@ class AutoCADBackend(ABC):
         ent = await self.entity_get(handle)
         et = ent.type
         p = ent.properties
-        ref = (
-            (float(ref_x), float(ref_y))
-            if ref_x is not None and ref_y is not None else None
-        )
+        ref = (float(ref_x), float(ref_y)) if ref_x is not None and ref_y is not None else None
 
         def _line_pts():
             s = p.get("start")
             e = p.get("end")
             if s is None or e is None:
-                raise RuntimeError(
-                    f"point_from_snap: entity {handle} ({et}) has no start/end."
-                )
+                raise RuntimeError(f"point_from_snap: entity {handle} ({et}) has no start/end.")
             return (float(s[0]), float(s[1])), (float(e[0]), float(e[1]))
 
         def _circle_geom():
             c = p.get("center")
             r = p.get("radius")
             if c is None or r is None:
-                raise RuntimeError(
-                    f"point_from_snap: entity {handle} ({et}) has no center/radius."
-                )
+                raise RuntimeError(f"point_from_snap: entity {handle} ({et}) has no center/radius.")
             return float(c[0]), float(c[1]), float(r)
 
         def _arc_angles():
@@ -822,8 +1038,7 @@ class AutoCADBackend(ABC):
             ea = p.get("end_angle")
             if sa is None or ea is None:
                 raise RuntimeError(
-                    f"point_from_snap: entity {handle} ({et}) has no "
-                    "start_angle/end_angle."
+                    f"point_from_snap: entity {handle} ({et}) has no start_angle/end_angle."
                 )
             return math.radians(float(sa)), math.radians(float(ea))
 
@@ -864,9 +1079,7 @@ class AutoCADBackend(ABC):
             if et in ("CIRCLE", "ARC", "ELLIPSE"):
                 c = p.get("center")
                 if c is None:
-                    raise RuntimeError(
-                        f"point_from_snap: entity {handle} ({et}) has no center."
-                    )
+                    raise RuntimeError(f"point_from_snap: entity {handle} ({et}) has no center.")
                 return (float(c[0]), float(c[1]))
             raise RuntimeError(f"point_from_snap: 'center' snap not supported on {et}")
 
@@ -1106,7 +1319,7 @@ class AutoCADBackend(ABC):
         # Tangent point T lies on the circle such that (T-F)⊥(T-C).
         # Solving cos(θ - α) = -r/d where α = atan2(C-F) gives the two
         # circle angles θ at which the tangent touches the perimeter.
-        alpha = math.atan2(dy, dx)          # direction from F to C
+        alpha = math.atan2(dy, dx)  # direction from F to C
         # NEW-base-1: clamp the acos argument to [-1, 1] so a from-point in the
         # narrow band [r-1e-9, r) (past the internal-point guard but with
         # |-r/d| marginally > 1 from float error) degenerates gracefully to the
@@ -1127,7 +1340,12 @@ class AutoCADBackend(ABC):
 
     @abstractmethod
     async def _create_xline(
-        self, x: float, y: float, dx: float, dy: float, layer: str,
+        self,
+        x: float,
+        y: float,
+        dx: float,
+        dy: float,
+        layer: str,
     ) -> EntityInfo:
         """Create an infinite construction line (XLINE) through (x, y) with
         unit direction (dx, dy) on `layer`. Backend-specific: XLINE has no
@@ -1162,10 +1380,14 @@ class AutoCADBackend(ABC):
         active layer set, so dims/scaffolding land on the right layer for
         iso13567 (M-DIMEN-T-N / M-CONST-E-N) not just mech/pid (DIM/CONSTRUCTION)."""
         from engineering.layers import resolve_role_layer
+
         return resolve_role_layer(self._active_layer_set_id(), role)
 
     async def construction_xline(
-        self, x: float, y: float, angle_deg: float,
+        self,
+        x: float,
+        y: float,
+        angle_deg: float,
         layer: str | None = None,
     ) -> EntityInfo:
         """Create an infinite construction line (XLINE) on the active layer set's
@@ -1174,11 +1396,16 @@ class AutoCADBackend(ABC):
         await self._ensure_layer(layer, color=250)
         ang = math.radians(float(angle_deg))
         return await self._create_xline(
-            float(x), float(y), math.cos(ang), math.sin(ang), layer,
+            float(x),
+            float(y),
+            math.cos(ang),
+            math.sin(ang),
+            layer,
         )
 
     async def construction_clear(
-        self, layer: str | None = None,
+        self,
+        layer: str | None = None,
     ) -> dict:
         """Delete every entity on the active layer set's construction layer.
         Must be called before `drawing_finalize`."""
@@ -1197,18 +1424,23 @@ class AutoCADBackend(ABC):
         return {"ok": True, "layer": layer, "deleted": deleted}
 
     async def drawing_apply_iso_layers(
-        self, standard: LayerSetId = "mech",
+        self,
+        standard: LayerSetId = "mech",
     ) -> dict:
         """Bootstrap a full ISO-conformant layer set with correct colors
         and lineweights. Idempotent."""
         from engineering.layers import apply_layer_set
+
         result = await apply_layer_set(self, standard)
         self._active_layer_set = standard
         return {"ok": True, "standard": standard, "layers": result}
 
     async def dimension_auto(
-        self, handles: list[str], style: DimStyle = "chain",
-        offset: float = 10.0, layer: str | None = None,
+        self,
+        handles: list[str],
+        style: DimStyle = "chain",
+        offset: float = 10.0,
+        layer: str | None = None,
     ) -> list[EntityInfo]:
         """Generate ISO 129 dimensions across `handles` in the chosen style
         (chain | baseline | ordinate). `offset` is the dimension-line
@@ -1219,16 +1451,14 @@ class AutoCADBackend(ABC):
         dim_layer = layer or self._role_layer("dim")
         if style not in ("chain", "baseline", "ordinate"):
             raise RuntimeError(
-                f"dimension_auto: unknown style '{style}'. "
-                "Use 'chain', 'baseline', or 'ordinate'."
+                f"dimension_auto: unknown style '{style}'. Use 'chain', 'baseline', or 'ordinate'."
             )
         segs: list[tuple[float, float, float, float]] = []
         for h in handles:
             ent = await self.entity_get(h)
             if ent.type != "LINE":
                 raise RuntimeError(
-                    f"dimension_auto V1: only LINE entities supported "
-                    f"(handle {h} is {ent.type})."
+                    f"dimension_auto V1: only LINE entities supported (handle {h} is {ent.type})."
                 )
             s = ent.properties.get("start")
             e = ent.properties.get("end")
@@ -1249,8 +1479,14 @@ class AutoCADBackend(ABC):
                 L = math.hypot(dx, dy) or 1.0
                 nx, ny = -dy / L, dx / L
                 dim = await self.dimension_linear(
-                    sx, sy, ex, ey, mx + nx * off, my + ny * off,
-                    rotation=math.degrees(math.atan2(dy, dx)), layer=dim_layer,
+                    sx,
+                    sy,
+                    ex,
+                    ey,
+                    mx + nx * off,
+                    my + ny * off,
+                    rotation=math.degrees(math.atan2(dy, dx)),
+                    layer=dim_layer,
                 )
                 results.append(dim)
 
@@ -1262,11 +1498,16 @@ class AutoCADBackend(ABC):
             base_rot = math.degrees(math.atan2(dy, dx))
             for i, (_sx, _sy, ex, ey) in enumerate(segs):
                 dim = await self.dimension_linear(
-                    sx0, sy0, ex, ey,
-                    sx0 - uy * (off + i * off), sy0 + ux * (off + i * off),
+                    sx0,
+                    sy0,
+                    ex,
+                    ey,
+                    sx0 - uy * (off + i * off),
+                    sy0 + ux * (off + i * off),
                     # Dimension line must run parallel to the (possibly rotated)
                     # baseline, not horizontal.
-                    rotation=base_rot, layer=dim_layer,
+                    rotation=base_rot,
+                    layer=dim_layer,
                 )
                 results.append(dim)
 
@@ -1275,22 +1516,33 @@ class AutoCADBackend(ABC):
                 rung = off + i * off  # stagger per feature to avoid coincident dims
                 if abs(ex - sx) > 1e-9:
                     dim = await self.dimension_linear(
-                        sx, sy, ex, sy,
-                        sx + (ex - sx) / 2.0, max(sy, ey) + rung, layer=dim_layer,
+                        sx,
+                        sy,
+                        ex,
+                        sy,
+                        sx + (ex - sx) / 2.0,
+                        max(sy, ey) + rung,
+                        layer=dim_layer,
                     )
                     results.append(dim)
                 if abs(ey - sy) > 1e-9:
                     dim = await self.dimension_linear(
-                        ex, sy, ex, ey,
-                        max(sx, ex) + rung, (sy + ey) / 2.0,
-                        rotation=90.0, layer=dim_layer,
+                        ex,
+                        sy,
+                        ex,
+                        ey,
+                        max(sx, ex) + rung,
+                        (sy + ey) / 2.0,
+                        rotation=90.0,
+                        layer=dim_layer,
                     )
                     results.append(dim)
 
         return results
 
     async def entity_select_smart(
-        self, predicate: dict,
+        self,
+        predicate: dict,
     ) -> list[EntityInfo]:
         """Semantic entity selection. Predicate keys (all optional, AND-ed):
         - type: "LINE" | "CIRCLE" | ...
@@ -1303,8 +1555,8 @@ class AutoCADBackend(ABC):
             raise RuntimeError("entity_select_smart: predicate must be a dict.")
         ptype = predicate.get("type")
         player = predicate.get("layer")
-        pnear = predicate.get("near")          # [x, y, radius]
-        plen = predicate.get("length_range")   # [min, max]
+        pnear = predicate.get("near")  # [x, y, radius]
+        plen = predicate.get("length_range")  # [min, max]
         pcolor = predicate.get("color")
 
         ents = await self.entity_list(
@@ -1321,13 +1573,15 @@ class AutoCADBackend(ABC):
                     nx, ny, nr = float(pnear[0]), float(pnear[1]), float(pnear[2])
                 except Exception:
                     return False
-                pt = (e.properties.get("start")
-                      or e.properties.get("center")
-                      or e.properties.get("insertion")
-                      or e.properties.get("insertion_point"))
+                pt = (
+                    e.properties.get("start")
+                    or e.properties.get("center")
+                    or e.properties.get("insertion")
+                    or e.properties.get("insertion_point")
+                )
                 if pt is None:
                     return False
-                if (float(pt[0]) - nx) ** 2 + (float(pt[1]) - ny) ** 2 > nr ** 2:
+                if (float(pt[0]) - nx) ** 2 + (float(pt[1]) - ny) ** 2 > nr**2:
                     return False
             if plen is not None and e.type in ("LINE", "ARC"):
                 try:
@@ -1349,14 +1603,23 @@ class AutoCADBackend(ABC):
     # every referenced datum is actually established on the part.
 
     async def _place_boxed_text(
-        self, text: str, cx: float, cy: float, text_h: float, layer: str,
+        self,
+        text: str,
+        cx: float,
+        cy: float,
+        text_h: float,
+        layer: str,
     ) -> str:
         """Create a TEXT entity roughly centred on (cx, cy). Returns its handle.
         entity_create_text has no alignment arg, so approximate the centring with
         the same width heuristic the title block uses."""
         approx_w = len(text) * text_h * 0.7
         t = await self.entity_create_text(
-            text, cx - approx_w / 2.0, cy - text_h / 2.0, height=text_h, layer=layer,
+            text,
+            cx - approx_w / 2.0,
+            cy - text_h / 2.0,
+            height=text_h,
+            layer=layer,
         )
         return t.handle
 
@@ -1386,8 +1649,13 @@ class AutoCADBackend(ABC):
         critique focus.
         """
         from engineering.gdt import fcf_compartments, fcf_layout
+
         comps = fcf_compartments(
-            symbol, tolerance, datums, diameter=diameter, modifier=modifier,
+            symbol,
+            tolerance,
+            datums,
+            diameter=diameter,
+            modifier=modifier,
         )
         layer = layer or self._role_layer("dim")
         await self._ensure_layer(layer, color=2)
@@ -1396,7 +1664,9 @@ class AutoCADBackend(ABC):
 
         box = lay["box"]
         box_poly = await self.entity_create_polyline(
-            [[bx, by] for bx, by in box], closed=False, layer=layer,
+            [[bx, by] for bx, by in box],
+            closed=False,
+            layer=layer,
         )
         handles.append(box_poly.handle)
         for (sx, sy), (ex, ey) in lay["dividers"]:
@@ -1410,7 +1680,7 @@ class AutoCADBackend(ABC):
         if refs is None:
             refs = set()
             self._gdt_datums_referenced = refs
-        for d in (datums or []):
+        for d in datums or []:
             d = str(d).strip().upper()
             if d:
                 refs.add(d)
@@ -1437,6 +1707,7 @@ class AutoCADBackend(ABC):
         with its apex at (x, y). Records the datum letter so a feature control
         frame that references it passes the `gdt` critique focus."""
         from engineering.gdt import datum_triangle, fcf_layout
+
         letter = str(letter).strip().upper()
         if not letter:
             raise RuntimeError("draw_datum_feature: a datum letter is required.")
@@ -1447,20 +1718,22 @@ class AutoCADBackend(ABC):
 
         tri = datum_triangle(float(x), float(y), size, down=True)
         tri_poly = await self.entity_create_polyline(
-            [[px, py] for px, py in tri], closed=True, layer=layer,
+            [[px, py] for px, py in tri],
+            closed=True,
+            layer=layer,
         )
         handles.append(tri_poly.handle)
 
         box_h = size * 1.4
         lay = fcf_layout([letter], float(x) - box_h / 2.0, float(y) - size - box_h, box_h)
         box_poly = await self.entity_create_polyline(
-            [[bx, by] for bx, by in lay["box"]], closed=False, layer=layer,
+            [[bx, by] for bx, by in lay["box"]],
+            closed=False,
+            layer=layer,
         )
         handles.append(box_poly.handle)
         for text, tcx, tcy in lay["labels"]:
-            handles.append(
-                await self._place_boxed_text(text, tcx, tcy, lay["text_height"], layer)
-            )
+            handles.append(await self._place_boxed_text(text, tcx, tcy, lay["text_height"], layer))
 
         defined = getattr(self, "_gdt_datums_defined", None)
         if defined is None:
@@ -1516,7 +1789,6 @@ class AutoCADBackend(ABC):
         return result
 
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -1538,11 +1810,22 @@ _SETTING_MAP: dict[str, tuple[str, str]] = {
 
 # INSUNITS code table (AutoCAD $INSUNITS): friendly name <-> integer code.
 _UNIT_TO_CODE: dict[str, int] = {
-    "unitless": 0, "inch": 1, "inches": 1, "in": 1,
-    "feet": 2, "ft": 2, "foot": 2,
-    "mm": 4, "millimeter": 4, "millimeters": 4,
-    "cm": 5, "centimeter": 5, "centimeters": 5,
-    "m": 6, "meter": 6, "meters": 6,
+    "unitless": 0,
+    "inch": 1,
+    "inches": 1,
+    "in": 1,
+    "feet": 2,
+    "ft": 2,
+    "foot": 2,
+    "mm": 4,
+    "millimeter": 4,
+    "millimeters": 4,
+    "cm": 5,
+    "centimeter": 5,
+    "centimeters": 5,
+    "m": 6,
+    "meter": 6,
+    "meters": 6,
 }
 _CODE_TO_UNIT: dict[int, str] = {0: "unitless", 1: "inch", 2: "feet", 4: "mm", 5: "cm", 6: "m"}
 

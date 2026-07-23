@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from backends.base import CapabilityMap, FeatureCapability
+from version import __version__
 
 
 def test_capability_types_serialize_stably():
@@ -32,7 +33,11 @@ async def test_ezdxf_capabilities_are_machine_readable(backend):
         "reason": None,
     }
     assert caps["features"]["mleader"]["mode"] == "composite"
-    assert caps["features"]["paper_space"]["supported"] is False
+    # v1.4: paper-space layouts/viewports are native on both backends;
+    # projecting model content through viewports stays COM-only, and 3D
+    # ACIS solids remain impossible headlessly.
+    assert caps["features"]["paper_space"]["supported"] is True
+    assert caps["features"]["viewport_render"]["supported"] is False
     assert caps["features"]["solid_3d"]["supported"] is False
 
 
@@ -70,5 +75,5 @@ async def test_system_about_uses_package_version_and_capability_summary(backend)
 
     result = await server.system_about(ctx=Ctx())
 
-    assert result["version"] == "1.3.0"
+    assert result["version"] == __version__
     assert result["capabilities"]["table"]["mode"] == "composite"

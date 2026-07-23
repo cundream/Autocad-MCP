@@ -31,6 +31,7 @@ from fastmcp.server.middleware.timing import TimingMiddleware
 from pydantic import Field
 
 import config
+from engineering.fits import fit_lookup
 from security import sanitize_command, sanitize_lisp, validate_path
 from version import __version__
 
@@ -56,12 +57,15 @@ def _detect_autocad_running() -> bool:
         return False
     try:
         import win32gui
+
         result = {"found": False}
+
         def _cb(hwnd, _):
             if "AutoCAD" in win32gui.GetWindowText(hwnd) and win32gui.IsWindowVisible(hwnd):
                 result["found"] = True
                 return False
             return True
+
         win32gui.EnumWindows(_cb, None)
         return result["found"]
     except Exception as exc:
@@ -75,6 +79,7 @@ async def _make_backend():
 
     if backend_env == "ezdxf":
         from backends.ezdxf_backend import EzdxfBackend
+
         b = EzdxfBackend()
         await b.connect()
         return b
@@ -83,6 +88,7 @@ async def _make_backend():
         if _WIN32:
             try:
                 from backends.com_backend import ComBackend
+
                 b = ComBackend()
                 await b.connect()
                 log.info("Using COM backend (live AutoCAD control)")
@@ -90,13 +96,12 @@ async def _make_backend():
             except Exception as exc:
                 log.warning("COM backend init failed (%s)", exc)
                 if backend_env == "com":
-                    raise RuntimeError(
-                        f"COM backend requested but failed: {exc}"
-                    ) from exc
+                    raise RuntimeError(f"COM backend requested but failed: {exc}") from exc
         else:
             log.warning("COM backend requires Windows; falling back to ezdxf")
 
     from backends.ezdxf_backend import EzdxfBackend
+
     b = EzdxfBackend()
     await b.connect()
     log.info("Using ezdxf backend (headless mode)")
@@ -106,6 +111,7 @@ async def _make_backend():
 # ---------------------------------------------------------------------------
 # Lifespan – backend singleton
 # ---------------------------------------------------------------------------
+
 
 @lifespan
 async def autocad_lifespan(server):
@@ -117,6 +123,10 @@ async def autocad_lifespan(server):
             "DISABLED. The server will execute any AutoCAD command or LISP expression "
             "the client sends. Do NOT enable this on a network-reachable instance."
         )
+    try:
+        await _apply_tool_profile()
+    except Exception as exc:  # profile trouble must never block startup
+        log.warning("Tool profile could not be applied: %s", exc)
     try:
         backend = await _make_backend()
         log.info("Backend ready: %s", backend.name)
@@ -131,6 +141,7 @@ async def autocad_lifespan(server):
 # ---------------------------------------------------------------------------
 # Middleware: audit log for destructive operations
 # ---------------------------------------------------------------------------
+
 
 class AuditMiddleware(Middleware):
     """Log all tool calls with timing for audit trail."""
@@ -225,6 +236,7 @@ mcp.add_middleware(LoggingMiddleware())
 # Backend access helper
 # ---------------------------------------------------------------------------
 
+
 def _backend(ctx: Context):
     """Get the backend from lifespan context, raising ToolError if not ready."""
     b = ctx.lifespan_context.get("backend")
@@ -288,6 +300,8 @@ _GROUP_TAG_PRIORITY = (
     "template",
     "dimension",
     "transaction",
+    "layout",
+    "solid",
     "view",
     "validation",
     "analysis",
@@ -310,6 +324,8 @@ _GROUP_TAG_LABELS = {
     "template": "templates",
     "dimension": "dimensions",
     "transaction": "transactions",
+    "layout": "layouts",
+    "solid": "solids",
     "view": "view",
     "analysis": "analysis",
     "validation": "validation",
@@ -351,8 +367,158 @@ async def _tool_groups() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 1: Drawing Management (11 tools) ────────────────────────────────
+# Tool profiles (capability-aware discovery)
 # ---------------------------------------------------------------------------
+# Some MCP clients degrade (or hard-cap) when a server exposes 100+ tools.
+# TOOL_PROFILE selects how much of the surface is advertised:
+#   full — everything (default, backwards compatible)
+#   core — everything except raw escape hatches and long-tail tools
+#   lean — a curated ~46-tool drafting/inspection core
+# Disabled tools stay registered (system_about still reports the full
+# inventory) but are hidden from MCP list_tools and rejected if called.
+
+TOOL_PROFILES = ("lean", "core", "full")
+
+LEAN_TOOL_NAMES = frozenset(
+    {
+        # drawing management
+        "drawing_new",
+        "drawing_open",
+        "drawing_save",
+        "drawing_save_as",
+        "drawing_export_dxf",
+        "drawing_export_pdf",
+        "drawing_info",
+        "drawing_audit",
+        "drawing_close",
+        # entity creation
+        "entity_create_line",
+        "entity_create_circle",
+        "entity_create_arc",
+        "entity_create_rectangle",
+        "entity_create_polyline",
+        "entity_create_text",
+        "entity_create_mtext",
+        # entity modification
+        "entity_move",
+        "entity_copy",
+        "entity_rotate",
+        "entity_scale",
+        "entity_mirror",
+        "entity_offset",
+        "entity_delete",
+        "entity_set_properties",
+        "entity_trim",
+        "entity_fillet",
+        # query
+        "entity_get",
+        "entity_list",
+        "entity_delete_many",
+        # layers
+        "layer_create",
+        "layer_list",
+        "layer_set_current",
+        "layer_modify",
+        "layer_delete",
+        # dimensions
+        "dimension_linear",
+        "dimension_aligned",
+        "dimension_radius",
+        "dimension_diameter",
+        # view
+        "view_zoom_extents",
+        "view_screenshot",
+        # transactions
+        "transaction_begin",
+        "transaction_commit",
+        "transaction_rollback",
+        # system
+        "system_status",
+        "system_about",
+        "system_capabilities",
+    }
+)
+
+CORE_EXCLUDED_TOOL_NAMES = frozenset(
+    {
+        # raw escape hatches — deliberate opt-in only
+        "system_run_command",
+        "system_run_lisp",
+        # low-level variable access (drawing_settings covers the common cases)
+        "system_get_variable",
+        "system_set_variable",
+        # long-tail / niche tools
+        "selection_get",
+        "linetype_list",
+        "linetype_load",
+        "block_find_references",
+        "drawing_undo",
+        "drawing_redo",
+        "view_zoom_window",
+        "entity_create_point",
+    }
+)
+
+SOLID_TOOL_NAMES = frozenset(
+    {"solid_box", "solid_cylinder", "solid_extrude", "solid_revolve", "solid_boolean"}
+)
+
+_active_tool_profile: dict | None = None
+
+
+def _profile_enabled_names(profile: str, registered: set[str]) -> set[str]:
+    if profile == "lean":
+        enabled = registered & LEAN_TOOL_NAMES
+    elif profile == "core":
+        enabled = registered - CORE_EXCLUDED_TOOL_NAMES
+    else:
+        enabled = set(registered)
+    if not config.settings.enable_3d:
+        # Capability-aware discovery: don't advertise opt-in 3D tools that
+        # would only reject the call.
+        enabled -= SOLID_TOOL_NAMES
+    return enabled
+
+
+async def _apply_tool_profile(profile: str | None = None) -> dict:
+    """Enable/disable registered tools according to the selected profile.
+
+    Runs in the server lifespan (and directly from tests). Re-applying a
+    different profile re-enables previously hidden tools first, so profile
+    switches are idempotent.
+    """
+    global _active_tool_profile
+    selected = (profile or config.settings.tool_profile or "full").lower().strip()
+    if selected not in TOOL_PROFILES:
+        log.warning("Unknown TOOL_PROFILE %r - falling back to 'full'", selected)
+        selected = "full"
+    registered = {tool.name for tool in await _registered_tools() if getattr(tool, "name", None)}
+    enabled = _profile_enabled_names(selected, registered)
+    disabled = sorted(registered - enabled)
+    if enabled:
+        mcp.enable(names=set(enabled))
+    if disabled:
+        mcp.disable(names=set(disabled))
+    _active_tool_profile = {
+        "profile": selected,
+        "registered_count": len(registered),
+        "enabled_count": len(enabled),
+        "disabled_count": len(disabled),
+        "disabled_tools": disabled,
+    }
+    log.info(
+        "Tool profile '%s': %d enabled, %d hidden",
+        selected,
+        len(enabled),
+        len(disabled),
+    )
+    return _active_tool_profile
+
+
+# ---------------------------------------------------------------------------
+# ── SECTION 1: Drawing Management (12 tools) ────────────────────────────────
+# ---------------------------------------------------------------------------
+
 
 @mcp.tool(
     annotations={"title": "Drawing Info", "readOnlyHint": True},
@@ -375,11 +541,14 @@ async def drawing_info(ctx: Context) -> dict:
 )
 async def drawing_new(
     template: Annotated[str | None, "Optional path to .dwt template file"] = None,
-    bootstrap: Annotated[bool, Field(
-        description="Auto-load CENTER/HIDDEN/PHANTOM linetypes and create standard "
-                    "engineering layers (GEOMETRY, DIM, CENTER, HIDDEN, PHANTOM, "
-                    "HATCH, TEXT, TITLEBLOCK). Disable for vanilla DXF.",
-    )] = True,
+    bootstrap: Annotated[
+        bool,
+        Field(
+            description="Auto-load CENTER/HIDDEN/PHANTOM linetypes and create standard "
+            "engineering layers (GEOMETRY, DIM, CENTER, HIDDEN, PHANTOM, "
+            "HATCH, TEXT, TITLEBLOCK). Disable for vanilla DXF.",
+        ),
+    ] = True,
     ctx: Context = None,
 ) -> dict:
     """Create a new empty drawing, optionally from a template (.dwt).
@@ -401,6 +570,7 @@ async def drawing_new(
                 ensure_engineering_layers,
                 ensure_standard_linetypes,
             )
+
             lt_status = await ensure_standard_linetypes(backend)
             layer_status = await ensure_engineering_layers(backend)
             result["bootstrap"] = {"ok": True, "linetypes": lt_status, "layers": layer_status}
@@ -450,8 +620,11 @@ async def drawing_save(
 )
 async def drawing_save_as(
     path: Annotated[str, "Full destination path including extension"],
-    format: Annotated[str, "Output format override: dwg, dxf, dwt. Default: derive "
-                           "from the path extension (the extension is authoritative)."] = "",
+    format: Annotated[
+        str,
+        "Output format override: dwg, dxf, dwt. Default: derive "
+        "from the path extension (the extension is authoritative).",
+    ] = "",
     ctx: Context = None,
 ) -> dict:
     """Save current drawing to a new path/format (DWG, DXF, or DWT template).
@@ -462,6 +635,7 @@ async def drawing_save_as(
     """
     validated = validate_path(path, allow_write=True)
     from pathlib import Path as _P
+
     ext = _P(str(validated)).suffix.lstrip(".").lower()
     fmt = ext if ext in ("dxf", "dwg", "dwt") else (format.lower() or "dxf")
     await ctx.info(f"Saving as {fmt}: {validated}")
@@ -488,13 +662,18 @@ async def drawing_export_dxf(
 )
 async def drawing_export_pdf(
     path: Annotated[str, "Output .pdf file path"],
+    layout: Annotated[
+        str | None,
+        "Paper-space layout to plot (default: model space). COM plots the layout "
+        "natively incl. viewport content; ezdxf renders the layout's own entities.",
+    ] = None,
     ctx: Context = None,
 ) -> dict:
-    """Export the current drawing to PDF."""
+    """Export the current drawing (or a paper-space layout) to PDF."""
     validated = validate_path(path, allow_write=True)
     await ctx.info(f"Exporting PDF: {validated}")
     await ctx.report_progress(0, 100)
-    result = await _backend(ctx).drawing_export_pdf(str(validated))
+    result = await _backend(ctx).drawing_export_pdf(str(validated), layout=layout)
     await ctx.report_progress(100, 100)
     return result
 
@@ -553,8 +732,9 @@ async def drawing_redo(ctx: Context = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 2: Entity Creation (13 tools) ───────────────────────────────────
+# ── SECTION 2: Entity Creation (14 tools) ───────────────────────────────────
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool(
     annotations={"title": "Create Line", "readOnlyHint": False},
@@ -612,7 +792,9 @@ async def entity_create_arc(
 ) -> dict:
     """Create a circular arc. Angles are in degrees, measured counter-clockwise from the positive X axis."""
     await ctx.debug(f"Creating arc center=({cx},{cy}) r={radius} {start_angle}°→{end_angle}°")
-    result = await _backend(ctx).entity_create_arc(cx, cy, radius, start_angle, end_angle, layer, color)
+    result = await _backend(ctx).entity_create_arc(
+        cx, cy, radius, start_angle, end_angle, layer, color
+    )
     return _dc(result)
 
 
@@ -684,7 +866,9 @@ async def entity_create_text(
     tags={"entity", "create", "annotation"},
 )
 async def entity_create_mtext(
-    text: Annotated[str, "Text content (supports \\P for paragraph breaks, {\\H...;} for formatting)"],
+    text: Annotated[
+        str, "Text content (supports \\P for paragraph breaks, {\\H...;} for formatting)"
+    ],
     x: Annotated[float, "Insertion point X"],
     y: Annotated[float, "Insertion point Y"],
     width: Annotated[float, "Text box width in drawing units"] = 100.0,
@@ -696,7 +880,9 @@ async def entity_create_mtext(
 ) -> dict:
     """Create a multi-line text entity (MTEXT) with word-wrap at the specified width."""
     await ctx.debug(f"Creating mtext at ({x},{y}) w={width}")
-    result = await _backend(ctx).entity_create_mtext(text, x, y, width, height, rotation, layer, color)
+    result = await _backend(ctx).entity_create_mtext(
+        text, x, y, width, height, rotation, layer, color
+    )
     return _dc(result)
 
 
@@ -758,7 +944,9 @@ async def entity_create_hatch(
 ) -> dict:
     """Create a hatch fill pattern inside a closed boundary polygon."""
     await ctx.debug(f"Creating hatch pattern={pattern} scale={scale}")
-    result = await _backend(ctx).entity_create_hatch(pattern, boundary_points, scale, angle, layer, color)
+    result = await _backend(ctx).entity_create_hatch(
+        pattern, boundary_points, scale, angle, layer, color
+    )
     return _dc(result)
 
 
@@ -787,14 +975,20 @@ async def entity_create_ellipse(
     cy: Annotated[float, "Center Y"],
     major_x: Annotated[float, "Major axis endpoint X (relative to center)"],
     major_y: Annotated[float, "Major axis endpoint Y (relative to center)"],
-    ratio: Annotated[float, Field(description="Minor-to-major axis ratio (0 < ratio ≤ 1)", gt=0, le=1)] = 0.5,
+    ratio: Annotated[
+        float, Field(description="Minor-to-major axis ratio (0 < ratio ≤ 1)", gt=0, le=1)
+    ] = 0.5,
     layer: Annotated[str | None, "Layer name"] = None,
     color: Annotated[int | None, "ACI color code"] = None,
     ctx: Context = None,
 ) -> dict:
     """Create an ellipse. major_x/major_y define the major axis vector from the center."""
-    await ctx.debug(f"Creating ellipse center=({cx},{cy}) major=({major_x},{major_y}) ratio={ratio}")
-    result = await _backend(ctx).entity_create_ellipse(cx, cy, major_x, major_y, ratio, layer, color)
+    await ctx.debug(
+        f"Creating ellipse center=({cx},{cy}) major=({major_x},{major_y}) ratio={ratio}"
+    )
+    result = await _backend(ctx).entity_create_ellipse(
+        cx, cy, major_x, major_y, ratio, layer, color
+    )
     return _dc(result)
 
 
@@ -830,13 +1024,46 @@ async def entity_create_block_ref(
 ) -> dict:
     """Insert a block reference (instance of an existing block definition)."""
     await ctx.debug(f"Inserting block '{name}' at ({x},{y})")
-    result = await _backend(ctx).entity_create_block_ref(name, x, y, scale_x, scale_y, rotation, layer)
+    result = await _backend(ctx).entity_create_block_ref(
+        name, x, y, scale_x, scale_y, rotation, layer
+    )
     return _dc(result)
 
 
 # ---------------------------------------------------------------------------
 # ── SECTION 3: Dimensions (5 tools) ─────────────────────────────────────────
 # ---------------------------------------------------------------------------
+
+
+def _fit_to_tolerances(
+    fit: str | None,
+    nominal: float,
+    tol_upper: float | None,
+    tol_lower: float | None,
+    tol_mode: str,
+    text_override: str | None,
+) -> tuple[float | None, float | None, str, str | None]:
+    """Resolve an ISO 286 fit code (e.g. 'H7') into the tolerance contract.
+
+    Mutually exclusive with explicit tol_* values. Returns
+    (tol_upper, tol_lower, tol_mode, text_override) where tol_lower follows
+    the build_dim_override convention (positive = minus deviation).
+    """
+    if not fit:
+        return tol_upper, tol_lower, tol_mode, text_override
+    if tol_upper is not None or tol_lower is not None or (tol_mode or "none") != "none":
+        raise ToolError("Pass either fit=<ISO 286 code> or explicit tol_* values, not both.")
+    try:
+        deviation = fit_lookup(fit, nominal)
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+    return (
+        deviation.upper_mm,
+        -deviation.lower_mm,
+        "deviation",
+        text_override or f"<> {deviation.code}",
+    )
+
 
 @mcp.tool(
     annotations={"title": "Linear Dimension", "readOnlyHint": False},
@@ -853,16 +1080,43 @@ async def dimension_linear(
     layer: Annotated[str | None, "Layer name"] = None,
     tol_upper: Annotated[float | None, "Upper deviation (mm), e.g. 0.02 for +0.02"] = None,
     tol_lower: Annotated[float | None, "Lower deviation (mm), e.g. 0.01 for -0.01"] = None,
-    tol_mode: Annotated[str, Field(default="none",
-        description="ISO 129 tolerance display: none | symmetric (±tol_upper) | "
-                    "deviation (+tol_upper/-tol_lower) | limit (stacked limits) | basic (boxed).")] = "none",
-    text_override: Annotated[str | None, "Replace the measured text ('<>' keeps the measurement)"] = None,
+    tol_mode: Annotated[
+        str,
+        Field(
+            default="none",
+            description="ISO 129 tolerance display: none | symmetric (±tol_upper) | "
+            "deviation (+tol_upper/-tol_lower) | limit (stacked limits) | basic (boxed).",
+        ),
+    ] = "none",
+    text_override: Annotated[
+        str | None, "Replace the measured text ('<>' keeps the measurement)"
+    ] = None,
+    fit: Annotated[
+        str | None,
+        "ISO 286 fit code (e.g. 'H7', 'g6', 'js9'); resolves deviations from the "
+        "authored tables for the measured nominal. Mutually exclusive with tol_*.",
+    ] = None,
     ctx: Context = None,
 ) -> dict:
-    """Create a linear dimension, optionally with an ISO 129 tolerance callout."""
+    """Create a linear dimension, optionally toleranced (ISO 129 or ISO 286 fit)."""
+    angle = math.radians(rotation)
+    nominal = abs((x2 - x1) * math.cos(angle) + (y2 - y1) * math.sin(angle))
+    tol_upper, tol_lower, tol_mode, text_override = _fit_to_tolerances(
+        fit, nominal, tol_upper, tol_lower, tol_mode, text_override
+    )
     result = await _backend(ctx).dimension_linear(
-        x1, y1, x2, y2, dim_x, dim_y, rotation, layer,
-        tol_upper, tol_lower, tol_mode, text_override,
+        x1,
+        y1,
+        x2,
+        y2,
+        dim_x,
+        dim_y,
+        rotation,
+        layer,
+        tol_upper,
+        tol_lower,
+        tol_mode,
+        text_override,
     )
     return _dc(result)
 
@@ -922,15 +1176,38 @@ async def dimension_radius(
     layer: Annotated[str | None, "Layer name"] = None,
     tol_upper: Annotated[float | None, "Upper deviation (mm)"] = None,
     tol_lower: Annotated[float | None, "Lower deviation (mm)"] = None,
-    tol_mode: Annotated[str, Field(default="none",
-        description="ISO 129 tolerance display: none | symmetric | deviation | limit | basic.")] = "none",
-    text_override: Annotated[str | None, "Replace the measured text ('<>' keeps the measurement)"] = None,
+    tol_mode: Annotated[
+        str,
+        Field(
+            default="none",
+            description="ISO 129 tolerance display: none | symmetric | deviation | limit | basic.",
+        ),
+    ] = "none",
+    text_override: Annotated[
+        str | None, "Replace the measured text ('<>' keeps the measurement)"
+    ] = None,
+    fit: Annotated[
+        str | None,
+        "ISO 286 fit code resolved for the measured radius value. Mutually exclusive with tol_*.",
+    ] = None,
     ctx: Context = None,
 ) -> dict:
     """Create a radius dimension for a circle or arc, optionally toleranced."""
+    nominal = math.dist((center_x, center_y), (chord_x, chord_y))
+    tol_upper, tol_lower, tol_mode, text_override = _fit_to_tolerances(
+        fit, nominal, tol_upper, tol_lower, tol_mode, text_override
+    )
     result = await _backend(ctx).dimension_radius(
-        center_x, center_y, chord_x, chord_y, leader_length, layer,
-        tol_upper, tol_lower, tol_mode, text_override,
+        center_x,
+        center_y,
+        chord_x,
+        chord_y,
+        leader_length,
+        layer,
+        tol_upper,
+        tol_lower,
+        tol_mode,
+        text_override,
     )
     return _dc(result)
 
@@ -948,22 +1225,47 @@ async def dimension_diameter(
     layer: Annotated[str | None, "Layer name"] = None,
     tol_upper: Annotated[float | None, "Upper deviation (mm)"] = None,
     tol_lower: Annotated[float | None, "Lower deviation (mm)"] = None,
-    tol_mode: Annotated[str, Field(default="none",
-        description="ISO 129 tolerance display: none | symmetric | deviation | limit | basic.")] = "none",
-    text_override: Annotated[str | None, "Replace the measured text ('<>' keeps the measurement)"] = None,
+    tol_mode: Annotated[
+        str,
+        Field(
+            default="none",
+            description="ISO 129 tolerance display: none | symmetric | deviation | limit | basic.",
+        ),
+    ] = "none",
+    text_override: Annotated[
+        str | None, "Replace the measured text ('<>' keeps the measurement)"
+    ] = None,
+    fit: Annotated[
+        str | None,
+        "ISO 286 fit code (e.g. 'H7' hole / 'g6' shaft) resolved for the measured "
+        "diameter. Mutually exclusive with tol_*.",
+    ] = None,
     ctx: Context = None,
 ) -> dict:
     """Create a diameter dimension for a circle, optionally toleranced (e.g. ⌀20 H7)."""
+    nominal = math.dist((x1, y1), (x2, y2))
+    tol_upper, tol_lower, tol_mode, text_override = _fit_to_tolerances(
+        fit, nominal, tol_upper, tol_lower, tol_mode, text_override
+    )
     result = await _backend(ctx).dimension_diameter(
-        x1, y1, x2, y2, leader_length, layer,
-        tol_upper, tol_lower, tol_mode, text_override,
+        x1,
+        y1,
+        x2,
+        y2,
+        leader_length,
+        layer,
+        tol_upper,
+        tol_lower,
+        tol_mode,
+        text_override,
     )
     return _dc(result)
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 4: Entity Modification (10 tools) ───────────────────────────────
+# ── SECTION 4: Entity Modification (16 tools) ───────────────────────────────
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool(
     annotations={"title": "Move Entity", "readOnlyHint": False, "destructiveHint": False},
@@ -1065,6 +1367,7 @@ async def entity_offset(
 
 # ── corner operations (trim/extend/fillet/chamfer) ──────────────────────────
 
+
 @mcp.tool(
     annotations={"title": "Trim Entity", "readOnlyHint": False, "destructiveHint": False},
     tags={"entity", "modify", "corner"},
@@ -1112,8 +1415,12 @@ async def entity_extend(
 async def entity_fillet(
     handle1: Annotated[str, "First entity handle"],
     handle2: Annotated[str, "Second entity handle"],
-    radius: Annotated[float, Field(description="Fillet radius (>= 0; 0 = sharp corner / corner-merge)", ge=0.0)],
-    trim: Annotated[bool, "If true, trim source entities to the tangent points (AutoCAD default)"] = True,
+    radius: Annotated[
+        float, Field(description="Fillet radius (>= 0; 0 = sharp corner / corner-merge)", ge=0.0)
+    ],
+    trim: Annotated[
+        bool, "If true, trim source entities to the tangent points (AutoCAD default)"
+    ] = True,
     ctx: Context = None,
 ) -> dict:
     """Round a corner with a tangent arc. Returns info on the new ARC entity
@@ -1130,8 +1437,12 @@ async def entity_chamfer(
     handle1: Annotated[str, "First entity handle"],
     handle2: Annotated[str, "Second entity handle"],
     dist1: Annotated[float, Field(description="Chamfer distance along first line", gt=0.0)],
-    dist2: Annotated[float | None, "Chamfer distance along second line (None = symmetric, dist2=dist1)"] = None,
-    trim: Annotated[bool, "If true, trim source entities to the tangent points (AutoCAD default)"] = True,
+    dist2: Annotated[
+        float | None, "Chamfer distance along second line (None = symmetric, dist2=dist1)"
+    ] = None,
+    trim: Annotated[
+        bool, "If true, trim source entities to the tangent points (AutoCAD default)"
+    ] = True,
     ctx: Context = None,
 ) -> dict:
     """Bevel a corner with a chamfer line. Returns info on the new chamfer LINE.
@@ -1169,7 +1480,9 @@ async def entity_array_rectangular(
     await ctx.info(f"Creating {rows}×{cols} rectangular array of entity {handle}")
     total = rows * cols
     await ctx.report_progress(0, total)
-    result = await _backend(ctx).entity_array_rectangular(handle, rows, cols, row_spacing, col_spacing)
+    result = await _backend(ctx).entity_array_rectangular(
+        handle, rows, cols, row_spacing, col_spacing
+    )
     await ctx.report_progress(total, total)
     return [_dc(e) for e in result]
 
@@ -1200,14 +1513,18 @@ async def entity_set_properties(
     handle: Annotated[str, "Entity handle"],
     layer: Annotated[str | None, "New layer name"] = None,
     color: Annotated[int | None, "New ACI color (256=ByLayer, 0=ByBlock, 1-255=specific)"] = None,
-    linetype: Annotated[str | None, "New linetype name (e.g. 'DASHED', 'CENTER', 'ByLayer')"] = None,
+    linetype: Annotated[
+        str | None, "New linetype name (e.g. 'DASHED', 'CENTER', 'ByLayer')"
+    ] = None,
     lineweight: Annotated[int | None, "Lineweight in 0.01mm units (-3=ByLayer, -2=ByBlock)"] = None,
     visible: Annotated[bool | None, "Set entity visibility"] = None,
     ctx: Context = None,
 ) -> dict:
     """Change one or more properties of an entity (layer, color, linetype, lineweight, visibility)."""
     await ctx.debug(f"Setting properties for entity {handle}")
-    return await _backend(ctx).entity_set_properties(handle, layer, color, linetype, lineweight, visible)
+    return await _backend(ctx).entity_set_properties(
+        handle, layer, color, linetype, lineweight, visible
+    )
 
 
 @mcp.tool(
@@ -1255,7 +1572,16 @@ async def entity_edit_geometry(
     """
     await ctx.debug(f"Editing geometry of entity {handle}")
     result = await _backend(ctx).entity_edit_geometry(
-        handle, cx, cy, radius, x1, y1, x2, y2, start_angle, end_angle,
+        handle,
+        cx,
+        cy,
+        radius,
+        x1,
+        y1,
+        x2,
+        y2,
+        start_angle,
+        end_angle,
     )
     return _dc(result)
 
@@ -1263,6 +1589,7 @@ async def entity_edit_geometry(
 # ---------------------------------------------------------------------------
 # ── SECTION 5: Entity Query (4 tools) ───────────────────────────────────────
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool(
     annotations={"title": "Get Entity", "readOnlyHint": True},
@@ -1282,7 +1609,10 @@ async def entity_get(
     tags={"entity", "query"},
 )
 async def entity_list(
-    type_filter: Annotated[str | None, "Filter by entity type: LINE, CIRCLE, ARC, LWPOLYLINE, TEXT, MTEXT, INSERT, HATCH, etc."] = None,
+    type_filter: Annotated[
+        str | None,
+        "Filter by entity type: LINE, CIRCLE, ARC, LWPOLYLINE, TEXT, MTEXT, INSERT, HATCH, etc.",
+    ] = None,
     layer_filter: Annotated[str | None, "Filter by layer name"] = None,
     limit: Annotated[int, Field(description="Maximum entities to return", ge=1, le=1000)] = 100,
     offset: Annotated[int, Field(description="Number of entities to skip", ge=0)] = 0,
@@ -1304,7 +1634,11 @@ async def entity_list(
 
 
 @mcp.tool(
-    annotations={"title": "Delete Multiple Entities", "readOnlyHint": False, "destructiveHint": True},
+    annotations={
+        "title": "Delete Multiple Entities",
+        "readOnlyHint": False,
+        "destructiveHint": True,
+    },
     tags={"entity", "modify"},
 )
 async def entity_delete_many(
@@ -1364,8 +1698,9 @@ async def selection_get(ctx: Context = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 6: Layer Management (12 tools) ──────────────────────────────────
+# ── SECTION 6: Layer Management (14 tools) ──────────────────────────────────
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool(
     annotations={"title": "List Layers", "readOnlyHint": True},
@@ -1385,7 +1720,9 @@ async def layer_create(
     name: Annotated[str, "New layer name"],
     color: Annotated[int, "ACI color code (1=Red, 2=Yellow, 3=Green, 4=Cyan, 5=Blue, 7=White)"] = 7,
     linetype: Annotated[str, "Linetype name"] = "Continuous",
-    lineweight: Annotated[int, "Lineweight (-3=ByLayer, 0=0.00mm, 13=0.13mm, 25=0.25mm, 50=0.50mm)"] = -3,
+    lineweight: Annotated[
+        int, "Lineweight (-3=ByLayer, 0=0.00mm, 13=0.13mm, 25=0.25mm, 50=0.50mm)"
+    ] = -3,
     ctx: Context = None,
 ) -> dict:
     """Create a new layer with specified properties."""
@@ -1528,7 +1865,7 @@ async def linetype_load(
     file: Annotated[
         str | None,
         "Optional .lin file. Defaults to acadiso.lin (metric) or acad.lin "
-        "(imperial), chosen from MEASUREMENT. Ignored by ezdxf backend."
+        "(imperial), chosen from MEASUREMENT. Ignored by ezdxf backend.",
     ] = None,
     ctx: Context = None,
 ) -> dict:
@@ -1546,6 +1883,7 @@ async def linetype_load(
 # ---------------------------------------------------------------------------
 # ── SECTION 7: Block Operations (7 tools) ───────────────────────────────────
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool(
     annotations={"title": "List Blocks", "readOnlyHint": True},
@@ -1574,7 +1912,9 @@ async def block_insert(
 ) -> dict:
     """Insert a block and optionally set attribute values."""
     await ctx.info(f"Inserting block '{name}' at ({x},{y})")
-    result = await _backend(ctx).block_insert(name, x, y, scale_x, scale_y, rotation, attributes, layer)
+    result = await _backend(ctx).block_insert(
+        name, x, y, scale_x, scale_y, rotation, attributes, layer
+    )
     return _dc(result)
 
 
@@ -1655,6 +1995,7 @@ async def block_find_references(
 # ── SECTION 8: Analysis & Query (8 tools) ───────────────────────────────────
 # ---------------------------------------------------------------------------
 
+
 @mcp.tool(
     annotations={"title": "Entity Statistics", "readOnlyHint": True},
     tags={"analysis", "query"},
@@ -1724,8 +2065,10 @@ async def analysis_measure_area(
     area = await _backend(ctx).analysis_measure_area(points)
     # Also compute perimeter
     perimeter = sum(
-        math.sqrt((points[(i+1) % len(points)][0] - points[i][0]) ** 2 +
-                  (points[(i+1) % len(points)][1] - points[i][1]) ** 2)
+        math.sqrt(
+            (points[(i + 1) % len(points)][0] - points[i][0]) ** 2
+            + (points[(i + 1) % len(points)][1] - points[i][1]) ** 2
+        )
         for i in range(len(points))
     )
     return {
@@ -1767,7 +2110,10 @@ async def analysis_select_by_layer(
     tags={"analysis", "query"},
 )
 async def analysis_select_by_type(
-    entity_type: Annotated[str, "Entity type: LINE, CIRCLE, ARC, LWPOLYLINE, TEXT, MTEXT, INSERT, HATCH, SPLINE, ELLIPSE"],
+    entity_type: Annotated[
+        str,
+        "Entity type: LINE, CIRCLE, ARC, LWPOLYLINE, TEXT, MTEXT, INSERT, HATCH, SPLINE, ELLIPSE",
+    ],
     ctx: Context = None,
 ) -> list[dict]:
     """Get all entities of a specific type. Returns entity list with handles."""
@@ -1793,7 +2139,9 @@ async def analysis_layer_stats(ctx: Context = None) -> dict:
     await ctx.report_progress(20, 100)
     all_entities = await b.entity_list(limit=50000)
     await ctx.report_progress(80, 100)
-    layer_data: dict[str, dict] = {lyr.name: {"layer": _dc(lyr), "count": 0, "types": {}} for lyr in layers}
+    layer_data: dict[str, dict] = {
+        lyr.name: {"layer": _dc(lyr), "count": 0, "types": {}} for lyr in layers
+    }
     for ent in all_entities:
         lyr_name = ent.layer
         if lyr_name not in layer_data:
@@ -1812,12 +2160,16 @@ async def analysis_layer_stats(ctx: Context = None) -> dict:
 # ── SECTION 8b: Batch Operations (2 tools) ───────────────────────────────
 # ---------------------------------------------------------------------------
 
+
 @mcp.tool(
     annotations={"title": "Batch Create Entities", "readOnlyHint": False},
     tags={"entity", "create", "batch"},
 )
 async def entity_batch_create(
-    entities: Annotated[list[dict], "List of entity definitions. Each dict must have 'type' and type-specific params. Types: line, circle, arc, polyline, rectangle, text, point"],
+    entities: Annotated[
+        list[dict],
+        "List of entity definitions. Each dict must have 'type' and type-specific params. Types: line, circle, arc, polyline, rectangle, text, point",
+    ],
     ctx: Context = None,
 ) -> dict:
     """Create multiple entities in a single call for better performance.
@@ -1869,7 +2221,10 @@ async def entity_batch_create(
     tags={"entity", "modify", "batch"},
 )
 async def entity_batch_modify(
-    operations: Annotated[list[dict], "List of operations. Each dict: {handle, action, ...params}. Actions: move(dx,dy), rotate(base_x,base_y,angle_deg), scale(base_x,base_y,factor), delete, set_properties(layer,color,...)"],
+    operations: Annotated[
+        list[dict],
+        "List of operations. Each dict: {handle, action, ...params}. Actions: move(dx,dy), rotate(base_x,base_y,angle_deg), scale(base_x,base_y,factor), delete, set_properties(layer,color,...)",
+    ],
     ctx: Context = None,
 ) -> dict:
     """Apply multiple modifications in a single call.
@@ -2023,12 +2378,15 @@ async def template_list(ctx: Context = None) -> dict:
 # ── SECTION 8d: Validation (1 tool) ──────────────────────────────────────
 # ---------------------------------------------------------------------------
 
+
 @mcp.tool(
     annotations={"title": "Validate Drawing", "readOnlyHint": True},
     tags={"analysis", "validation"},
 )
 async def validation_check(
-    checks: Annotated[list[str], "List of checks: empty_layers, zero_length, duplicate_entities"] = None,
+    checks: Annotated[
+        list[str], "List of checks: empty_layers, zero_length, duplicate_entities"
+    ] = None,
     ctx: Context = None,
 ) -> dict:
     """Run quality checks on the current drawing.
@@ -2051,12 +2409,14 @@ async def validation_check(
         used_layers = {e.layer for e in all_entities}
         for lyr in layers:
             if lyr.name != "0" and lyr.name not in used_layers:
-                issues.append({
-                    "check": "empty_layers",
-                    "severity": "info",
-                    "message": f"Layer '{lyr.name}' has no entities",
-                    "layer": lyr.name,
-                })
+                issues.append(
+                    {
+                        "check": "empty_layers",
+                        "severity": "info",
+                        "message": f"Layer '{lyr.name}' has no entities",
+                        "layer": lyr.name,
+                    }
+                )
 
     if "zero_length" in checks:
         lines = await b.entity_list(type_filter="LINE", limit=10000)
@@ -2069,12 +2429,14 @@ async def validation_check(
                 dy = end[1] - start[1]
                 length = (dx * dx + dy * dy) ** 0.5
                 if length < 0.001:
-                    issues.append({
-                        "check": "zero_length",
-                        "severity": "warning",
-                        "message": f"Zero-length line at ({start[0]:.1f}, {start[1]:.1f})",
-                        "handle": line.handle,
-                    })
+                    issues.append(
+                        {
+                            "check": "zero_length",
+                            "severity": "warning",
+                            "message": f"Zero-length line at ({start[0]:.1f}, {start[1]:.1f})",
+                            "handle": line.handle,
+                        }
+                    )
 
     return {
         "ok": len(issues) == 0,
@@ -2085,8 +2447,9 @@ async def validation_check(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 9: View & Screenshot (5 tools) ──────────────────────────────────
+# ── SECTION 9: View & Screenshot (4 tools) ──────────────────────────────────
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool(
     annotations={"title": "Zoom Extents", "readOnlyHint": False, "destructiveHint": False},
@@ -2184,6 +2547,7 @@ async def view_zoom_and_screenshot(
 # ── SECTION 10: Transactions (3 tools) ──────────────────────────────────────
 # ---------------------------------------------------------------------------
 
+
 @mcp.tool(
     annotations={"title": "Begin Transaction", "readOnlyHint": False, "destructiveHint": False},
     tags={"transaction"},
@@ -2234,8 +2598,9 @@ async def transaction_rollback(ctx: Context = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 11: System (6 tools) ────────────────────────────────────────────
+# ── SECTION 11: System (8 tools) ────────────────────────────────────────────
 # ---------------------------------------------------------------------------
+
 
 @mcp.tool(
     annotations={"title": "Server Status", "readOnlyHint": True},
@@ -2289,7 +2654,9 @@ async def system_capabilities(ctx: Context = None) -> dict:
     tags={"system"},
 )
 async def system_get_variable(
-    name: Annotated[str, "System variable name (e.g. DIMSCALE, LTSCALE, INSUNITS, CLAYER, MEASUREMENT)"],
+    name: Annotated[
+        str, "System variable name (e.g. DIMSCALE, LTSCALE, INSUNITS, CLAYER, MEASUREMENT)"
+    ],
     ctx: Context = None,
 ) -> dict:
     """Get an AutoCAD system variable value."""
@@ -2311,16 +2678,26 @@ async def system_set_variable(
 
 
 @mcp.tool(
-    annotations={"title": "Drawing Settings (read / change)", "readOnlyHint": False,
-                 "destructiveHint": False},
+    annotations={
+        "title": "Drawing Settings (read / change)",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+    },
     tags={"system"},
 )
 async def drawing_settings(
-    settings: Annotated[dict | None, Field(default=None, description=(
-        "Omit to READ every setting; pass a dict to CHANGE them. Friendly keys: "
-        "units (mm/cm/m/inch/feet), linear_precision, angular_precision, ltscale, "
-        "dimscale, text_size, point_mode, point_size, osmode, fillet_radius. "
-        "Example: {\"units\": \"mm\", \"dimscale\": 1.0, \"linear_precision\": 2}."))] = None,
+    settings: Annotated[
+        dict | None,
+        Field(
+            default=None,
+            description=(
+                "Omit to READ every setting; pass a dict to CHANGE them. Friendly keys: "
+                "units (mm/cm/m/inch/feet), linear_precision, angular_precision, ltscale, "
+                "dimscale, text_size, point_mode, point_size, osmode, fillet_radius. "
+                'Example: {"units": "mm", "dimscale": 1.0, "linear_precision": 2}.'
+            ),
+        ),
+    ] = None,
     ctx: Context = None,
 ) -> dict:
     """Read or change common AutoCAD drawing settings by friendly name.
@@ -2362,7 +2739,7 @@ async def system_run_command(
     tags={"system"},
 )
 async def system_run_lisp(
-    expression: Annotated[str, "AutoLISP expression to evaluate (e.g. '(command \"ZOOM\" \"E\")')"],
+    expression: Annotated[str, 'AutoLISP expression to evaluate (e.g. \'(command "ZOOM" "E")\')'],
     ctx: Context = None,
 ) -> dict:
     """Execute an AutoLISP expression (COM backend only).
@@ -2395,6 +2772,8 @@ async def system_about(ctx: Context = None) -> dict:
         "tool_groups": await _tool_groups(),
         "unsafe_mode": config.settings.dangerous_commands_enabled,
         "capabilities": b.capabilities().to_dict()["features"] if b else {},
+        "tool_profile": _active_tool_profile
+        or {"profile": config.settings.tool_profile, "applied": False},
     }
     # R20: omit total_tools when unknown rather than reporting a fake -1.
     if tool_count is not None:
@@ -2406,26 +2785,40 @@ async def system_about(ctx: Context = None) -> dict:
 # ── SECTION 12: Engineering Tools (deterministic CAD generators) ────────────
 # ---------------------------------------------------------------------------
 
+
 @mcp.tool(
     annotations={"title": "Gear: Helical Front View", "destructiveHint": False},
     tags={"engineering", "gear"},
 )
 async def gear_draw_helical_front_view(
-    module: Annotated[float, Field(gt=0, description="Module (mm). Pitch radius = module*teeth/2.")],
+    module: Annotated[
+        float, Field(gt=0, description="Module (mm). Pitch radius = module*teeth/2.")
+    ],
     teeth: Annotated[int, Field(ge=6, description="Number of teeth.")],
     helix_angle: Annotated[float, Field(ge=0, lt=45, description="Helix angle in degrees.")],
-    pressure_angle: Annotated[float, Field(default=20.0, gt=0, lt=45,
-        description="Pressure angle (deg). Standard: 20.")] = 20.0,
-    hand: Annotated[str, Field(default="RH",
-        description="Helix hand: 'RH' (right) or 'LH' (left).")] = "RH",
+    pressure_angle: Annotated[
+        float, Field(default=20.0, gt=0, lt=45, description="Pressure angle (deg). Standard: 20.")
+    ] = 20.0,
+    hand: Annotated[
+        str, Field(default="RH", description="Helix hand: 'RH' (right) or 'LH' (left).")
+    ] = "RH",
     center_x: Annotated[float, Field(default=0.0)] = 0.0,
     center_y: Annotated[float, Field(default=0.0)] = 0.0,
-    bore_diameter: Annotated[float | None, Field(default=None, gt=0,
-        description="Optional bore diameter (mm). Adds a centered hole.")] = None,
-    keyway_width: Annotated[float | None, Field(default=None, gt=0,
-        description="Keyway width (b). Auto from DIN 6885 if bore set and this is None.")] = None,
-    keyway_depth: Annotated[float | None, Field(default=None, gt=0,
-        description="Keyway depth into hub (t2).")] = None,
+    bore_diameter: Annotated[
+        float | None,
+        Field(default=None, gt=0, description="Optional bore diameter (mm). Adds a centered hole."),
+    ] = None,
+    keyway_width: Annotated[
+        float | None,
+        Field(
+            default=None,
+            gt=0,
+            description="Keyway width (b). Auto from DIN 6885 if bore set and this is None.",
+        ),
+    ] = None,
+    keyway_depth: Annotated[
+        float | None, Field(default=None, gt=0, description="Keyway depth into hub (t2).")
+    ] = None,
     ctx: Context = None,
 ) -> dict:
     """Deterministic helical gear front view: full involute outline (40 pts/flank),
@@ -2434,12 +2827,22 @@ async def gear_draw_helical_front_view(
     Returns a handle bundle plus 'metadata' for downstream gear_draw_section_aa.
     """
     from engineering import draw_helical_gear_front_view
+
     backend = _backend(ctx)
-    await ctx.info(f"Drawing helical gear: m={module}, z={teeth}, beta={helix_angle} deg, hand={hand}")
+    await ctx.info(
+        f"Drawing helical gear: m={module}, z={teeth}, beta={helix_angle} deg, hand={hand}"
+    )
     return await draw_helical_gear_front_view(
-        backend, module=module, teeth=teeth, helix_angle=helix_angle,
-        pressure_angle=pressure_angle, hand=hand, center=(center_x, center_y),
-        bore_diameter=bore_diameter, keyway_width=keyway_width, keyway_depth=keyway_depth,
+        backend,
+        module=module,
+        teeth=teeth,
+        helix_angle=helix_angle,
+        pressure_angle=pressure_angle,
+        hand=hand,
+        center=(center_x, center_y),
+        bore_diameter=bore_diameter,
+        keyway_width=keyway_width,
+        keyway_depth=keyway_depth,
     )
 
 
@@ -2460,12 +2863,18 @@ async def gear_draw_spur_front_view(
 ) -> dict:
     """Deterministic spur gear front view (no helix symbol)."""
     from engineering import draw_spur_gear_front_view
+
     backend = _backend(ctx)
     await ctx.info(f"Drawing spur gear: m={module}, z={teeth}")
     return await draw_spur_gear_front_view(
-        backend, module=module, teeth=teeth, pressure_angle=pressure_angle,
-        center=(center_x, center_y), bore_diameter=bore_diameter,
-        keyway_width=keyway_width, keyway_depth=keyway_depth,
+        backend,
+        module=module,
+        teeth=teeth,
+        pressure_angle=pressure_angle,
+        center=(center_x, center_y),
+        bore_diameter=bore_diameter,
+        keyway_width=keyway_width,
+        keyway_depth=keyway_depth,
     )
 
 
@@ -2474,7 +2883,12 @@ async def gear_draw_spur_front_view(
     tags={"engineering", "gear"},
 )
 async def gear_draw_section_aa(
-    gear_metadata: Annotated[dict, Field(description="The 'metadata' dict returned by gear_draw_helical_front_view or gear_draw_spur_front_view.")],
+    gear_metadata: Annotated[
+        dict,
+        Field(
+            description="The 'metadata' dict returned by gear_draw_helical_front_view or gear_draw_spur_front_view."
+        ),
+    ],
     x_offset: Annotated[float, Field(description="X position to place the section view.")],
     face_width: Annotated[float, Field(gt=0, description="Gear face width (mm).")],
     ctx: Context = None,
@@ -2483,10 +2897,14 @@ async def gear_draw_section_aa(
     Includes top/bottom/left/right boundaries, bore lines, keyway notch, ANSI31 hatch.
     """
     from engineering import draw_gear_section_aa
+
     backend = _backend(ctx)
     await ctx.info(f"Drawing section A-A at x={x_offset}, face_width={face_width}")
     return await draw_gear_section_aa(
-        backend, gear_metadata=gear_metadata, x_offset=x_offset, face_width=face_width,
+        backend,
+        gear_metadata=gear_metadata,
+        x_offset=x_offset,
+        face_width=face_width,
     )
 
 
@@ -2505,10 +2923,15 @@ async def keyway_draw_keyed_bore(
 ) -> dict:
     """Bore + DIN 6885 keyway in front view. Auto-sizes keyway from bore if width/depth omitted."""
     from engineering import draw_keyed_bore
+
     backend = _backend(ctx)
     return await draw_keyed_bore(
-        backend, center=(center_x, center_y), bore_diameter=bore_diameter,
-        keyway_width=keyway_width, keyway_depth=keyway_depth, layer=layer,
+        backend,
+        center=(center_x, center_y),
+        bore_diameter=bore_diameter,
+        keyway_width=keyway_width,
+        keyway_depth=keyway_depth,
+        layer=layer,
     )
 
 
@@ -2527,10 +2950,15 @@ async def keyway_draw_section(
 ) -> dict:
     """Side cross-section view of a keyed bore."""
     from engineering import draw_keyway_section
+
     backend = _backend(ctx)
     return await draw_keyway_section(
-        backend, center=(center_x, center_y), bore_diameter=bore_diameter,
-        face_width=face_width, keyway_width=keyway_width, keyway_depth=keyway_depth,
+        backend,
+        center=(center_x, center_y),
+        bore_diameter=bore_diameter,
+        face_width=face_width,
+        keyway_width=keyway_width,
+        keyway_depth=keyway_depth,
     )
 
 
@@ -2557,31 +2985,59 @@ async def titleblock_apply_iso_a3(
 ) -> dict:
     """ISO 7200 / A3 (420x297 mm) title block. Title text is used verbatim."""
     from engineering import TitleBlockMetadata, apply_iso_a3_titleblock
+
     backend = _backend(ctx)
     metadata = TitleBlockMetadata(
-        title=title, drawing_no=drawing_no, part_no=part_no, material=material,
-        scale=scale, units=units, drawn_by=drawn_by, checked_by=checked_by,
-        date=date, sheet=sheet, revision=revision, company=company,
+        title=title,
+        drawing_no=drawing_no,
+        part_no=part_no,
+        material=material,
+        scale=scale,
+        units=units,
+        drawn_by=drawn_by,
+        checked_by=checked_by,
+        date=date,
+        sheet=sheet,
+        revision=revision,
+        company=company,
     )
     return await apply_iso_a3_titleblock(backend, metadata=metadata, origin=(origin_x, origin_y))
 
 
 @mcp.tool(
-    annotations={"title": "Drawing: Finalize (validate + save + screenshot)",
-                 "destructiveHint": True},
+    annotations={
+        "title": "Drawing: Finalize (validate + save + screenshot)",
+        "destructiveHint": True,
+    },
     tags={"engineering", "drawing", "validation"},
 )
 async def drawing_finalize(
-    save_path: Annotated[str | None, Field(default=None,
-        description="If given, save drawing here before validation. Pass full path including extension.")] = None,
-    screenshot_path: Annotated[str | None, Field(default=None,
-        description="If given, write PNG screenshot to this path.")] = None,
-    expected: Annotated[dict | None, Field(default=None,
-        description="Optional contract: {'part_type', 'helix_angle', 'must_have_bore', 'must_have_keyway'}")] = None,
-    strict_critique: Annotated[bool, Field(default=False,
-        description="If true, ANY critique issue (including warnings) fails the gate — the full "
-                    "premium discipline. Default false: only critique 'error' issues (e.g. leftover "
-                    "construction geometry) fail; warnings are surfaced in the payload.")] = False,
+    save_path: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="If given, save drawing here before validation. Pass full path including extension.",
+        ),
+    ] = None,
+    screenshot_path: Annotated[
+        str | None, Field(default=None, description="If given, write PNG screenshot to this path.")
+    ] = None,
+    expected: Annotated[
+        dict | None,
+        Field(
+            default=None,
+            description="Optional contract: {'part_type', 'helix_angle', 'must_have_bore', 'must_have_keyway'}",
+        ),
+    ] = None,
+    strict_critique: Annotated[
+        bool,
+        Field(
+            default=False,
+            description="If true, ANY critique issue (including warnings) fails the gate — the full "
+            "premium discipline. Default false: only critique 'error' issues (e.g. leftover "
+            "construction geometry) fail; warnings are surfaced in the payload.",
+        ),
+    ] = False,
     ctx: Context = None,
 ) -> dict:
     """Premium completion gate: runs BOTH the 8-step validator AND the premium critique focuses
@@ -2593,11 +3049,13 @@ async def drawing_finalize(
     under payload['critique'] without failing the gate by default.
     """
     from engineering import DrawingValidator
+
     backend = _backend(ctx)
 
     if save_path:
         validated = validate_path(save_path, allow_write=True)
         from pathlib import Path as _P
+
         _fmt = _P(str(validated)).suffix.lstrip(".").lower() or "dxf"
         await backend.drawing_save_as(str(validated), fmt=_fmt)
 
@@ -2607,6 +3065,7 @@ async def drawing_finalize(
             shot = await backend.view_screenshot()
             if shot:
                 from pathlib import Path as _P
+
                 _P(str(validated_shot)).write_bytes(shot)
         except Exception as exc:
             if ctx is not None:
@@ -2627,6 +3086,7 @@ async def drawing_finalize(
     # validator and the premium critique (MUSE/CadBench grade an Invalidity Ratio,
     # not shape). 100 = clean; errors dominate the penalty.
     from engineering.scoring import combine
+
     payload["score"] = combine(result.summary, crit_summary)
 
     info = await backend.drawing_info()
@@ -2644,7 +3104,8 @@ async def drawing_finalize(
         )
 
     gate_failures = [
-        i for i in critique_issues
+        i
+        for i in critique_issues
         if i.severity == "error" or (strict_critique and i.severity != "info")
     ]
     if gate_failures:
@@ -2712,6 +3173,7 @@ async def drawing_deliver(
 #   plan → snap-aware geometry → critique → finalize.
 # See `.claude/skills/autocad-mcp-premium/` for the full discipline.
 
+
 @mcp.tool(
     annotations={"title": "Drawing: Preflight", "readOnlyHint": True},
     tags={"premium", "planning", "validation"},
@@ -2722,9 +3184,7 @@ async def drawing_preflight(
         dict | None,
         "Units, part_type, dimensions, tolerance_policy and optional constraints.",
     ] = None,
-    sheet_size: Annotated[
-        str, Field(default="A3", description="A4 / A3 / A2 / A1 / A0.")
-    ] = "A3",
+    sheet_size: Annotated[str, Field(default="A3", description="A4 / A3 / A2 / A1 / A0.")] = "A3",
     scale: Annotated[float, Field(default=1.0, gt=0)] = 1.0,
     layer_set_id: Annotated[
         str, Field(default="mech", description="mech / pid / iso13567.")
@@ -2751,27 +3211,33 @@ async def drawing_preflight(
     )
     return result.to_dict()
 
+
 @mcp.tool(
-    annotations={"title": "Drawing: Plan (commit intent before drawing)",
-                 "destructiveHint": False},
+    annotations={"title": "Drawing: Plan (commit intent before drawing)", "destructiveHint": False},
     tags={"premium", "planning"},
 )
 async def drawing_plan(
     intent: Annotated[str, "One-line description of what this drawing represents."],
-    sheet_size: Annotated[str, Field(default="A3",
-        description="Paper size: A4 / A3 / A2 / A1 / A0.")] = "A3",
-    scale: Annotated[float, Field(default=1.0, gt=0,
-        description="Drawing scale (1.0 = 1:1, 0.1 = 1:10, etc).")] = 1.0,
-    layer_set_id: Annotated[str, Field(default="mech",
-        description="Layer set to bootstrap: mech / pid / iso13567.")] = "mech",
+    sheet_size: Annotated[
+        str, Field(default="A3", description="Paper size: A4 / A3 / A2 / A1 / A0.")
+    ] = "A3",
+    scale: Annotated[
+        float, Field(default=1.0, gt=0, description="Drawing scale (1.0 = 1:1, 0.1 = 1:10, etc).")
+    ] = 1.0,
+    layer_set_id: Annotated[
+        str, Field(default="mech", description="Layer set to bootstrap: mech / pid / iso13567.")
+    ] = "mech",
     view_count: Annotated[int, Field(default=1, ge=1)] = 1,
-    dim_style: Annotated[str, Field(default="chain",
-        description="Default dimensioning style: chain / baseline / ordinate / mixed.")] = "chain",
+    dim_style: Annotated[
+        str,
+        Field(
+            default="chain",
+            description="Default dimensioning style: chain / baseline / ordinate / mixed.",
+        ),
+    ] = "chain",
     notes: Annotated[list[str] | None, "Free-form constraint notes."] = None,
     requirements: Annotated[dict | None, "Normalized preflight requirements."] = None,
-    spec_hash: Annotated[
-        str | None, "Hash returned by the latest ready drawing_preflight."
-    ] = None,
+    spec_hash: Annotated[str | None, "Hash returned by the latest ready drawing_preflight."] = None,
     ctx: Context = None,
 ) -> dict:
     """Commit a PlanSpec before any geometry is created.
@@ -2781,21 +3247,36 @@ async def drawing_plan(
     in a premium workflow.
     """
     plan = await _backend(ctx).drawing_plan(
-        intent, sheet_size, scale, layer_set_id, view_count, dim_style, notes,
-        requirements, spec_hash,
+        intent,
+        sheet_size,
+        scale,
+        layer_set_id,
+        view_count,
+        dim_style,
+        notes,
+        requirements,
+        spec_hash,
     )
     return _dc(plan)
 
 
 @mcp.tool(
-    annotations={"title": "Drawing: Critique (premium quality checks)",
-                 "destructiveHint": False, "readOnlyHint": True},
+    annotations={
+        "title": "Drawing: Critique (premium quality checks)",
+        "destructiveHint": False,
+        "readOnlyHint": True,
+    },
     tags={"premium", "validation"},
 )
 async def drawing_critique(
-    focus: Annotated[list[str] | None, Field(default=None,
-        description="Subset of: iso128, layer_color, dim_overlap, untrimmed_corner, "
-                    "duplicate_entities, construction_left. None = run all.")] = None,
+    focus: Annotated[
+        list[str] | None,
+        Field(
+            default=None,
+            description="Subset of: iso128, layer_color, dim_overlap, untrimmed_corner, "
+            "duplicate_entities, construction_left. None = run all.",
+        ),
+    ] = None,
     ctx: Context = None,
 ) -> list[dict]:
     """Run premium-quality checks. Returns zero issues for a clean drawing.
@@ -2841,7 +3322,9 @@ async def drawing_refine(
 async def point_from_snap(
     handle: Annotated[str, "Entity handle to snap onto"],
     snap: Annotated[str, Field(description="Snap type: end | mid | center | quad | perp | near")],
-    ref_x: Annotated[float | None, "Reference X (required for perp/near; disambiguates end/quad)"] = None,
+    ref_x: Annotated[
+        float | None, "Reference X (required for perp/near; disambiguates end/quad)"
+    ] = None,
     ref_y: Annotated[float | None, "Reference Y"] = None,
     ctx: Context = None,
 ) -> dict:
@@ -2859,7 +3342,9 @@ async def point_from_snap(
 async def point_intersection(
     handle1: Annotated[str, "First entity handle (LINE or CIRCLE)"],
     handle2: Annotated[str, "Second entity handle (LINE or CIRCLE)"],
-    ref_x: Annotated[float | None, "Reference X to pick nearest candidate when multiple exist"] = None,
+    ref_x: Annotated[
+        float | None, "Reference X to pick nearest candidate when multiple exist"
+    ] = None,
     ref_y: Annotated[float | None, "Reference Y"] = None,
     ctx: Context = None,
 ) -> dict:
@@ -2879,7 +3364,9 @@ async def point_tangent(
     circle_handle: Annotated[str, "Handle of the CIRCLE entity"],
     from_x: Annotated[float, "X of the external point"],
     from_y: Annotated[float, "Y of the external point"],
-    ref_x: Annotated[float | None, "Reference X to pick nearest tangent point when two exist"] = None,
+    ref_x: Annotated[
+        float | None, "Reference X to pick nearest tangent point when two exist"
+    ] = None,
     ref_y: Annotated[float | None, "Reference Y"] = None,
     ctx: Context = None,
 ) -> dict:
@@ -2891,8 +3378,7 @@ async def point_tangent(
 
 
 @mcp.tool(
-    annotations={"title": "Construction: XLine (infinite reference)",
-                 "destructiveHint": False},
+    annotations={"title": "Construction: XLine (infinite reference)", "destructiveHint": False},
     tags={"premium", "construction"},
 )
 async def construction_xline(
@@ -2910,8 +3396,7 @@ async def construction_xline(
 
 
 @mcp.tool(
-    annotations={"title": "Construction: Clear (delete scaffold)",
-                 "destructiveHint": True},
+    annotations={"title": "Construction: Clear (delete scaffold)", "destructiveHint": True},
     tags={"premium", "construction"},
 )
 async def construction_clear(
@@ -2925,13 +3410,17 @@ async def construction_clear(
 
 
 @mcp.tool(
-    annotations={"title": "Drawing: Apply ISO Layer Set (bootstrap)",
-                 "destructiveHint": False},
+    annotations={"title": "Drawing: Apply ISO Layer Set (bootstrap)", "destructiveHint": False},
     tags={"premium", "layers"},
 )
 async def drawing_apply_iso_layers(
-    standard: Annotated[str, Field(default="mech",
-        description="Layer set: mech (DIN/ISO mechanical), pid (P&ID), iso13567 (CAD layer naming).")] = "mech",
+    standard: Annotated[
+        str,
+        Field(
+            default="mech",
+            description="Layer set: mech (DIN/ISO mechanical), pid (P&ID), iso13567 (CAD layer naming).",
+        ),
+    ] = "mech",
     ctx: Context = None,
 ) -> dict:
     """Bootstrap a full ISO-conformant layer set with correct colors and lineweights.
@@ -2941,16 +3430,20 @@ async def drawing_apply_iso_layers(
 
 
 @mcp.tool(
-    annotations={"title": "Dimension: Auto (chain / baseline / ordinate)",
-                 "destructiveHint": False},
+    annotations={
+        "title": "Dimension: Auto (chain / baseline / ordinate)",
+        "destructiveHint": False,
+    },
     tags={"premium", "dimension"},
 )
 async def dimension_auto(
     handles: Annotated[list[str], "List of entity handles to dimension"],
-    style: Annotated[str, Field(default="chain",
-        description="chain | baseline | ordinate")] = "chain",
-    offset: Annotated[float, Field(default=10.0, gt=0,
-        description="Dimension-line offset from the geometry (mm)")] = 10.0,
+    style: Annotated[
+        str, Field(default="chain", description="chain | baseline | ordinate")
+    ] = "chain",
+    offset: Annotated[
+        float, Field(default=10.0, gt=0, description="Dimension-line offset from the geometry (mm)")
+    ] = 10.0,
     ctx: Context = None,
 ) -> list[dict]:
     """Generate ISO 129 dimensions across the listed entities in the chosen style.
@@ -2961,16 +3454,20 @@ async def dimension_auto(
 
 
 @mcp.tool(
-    annotations={"title": "Entity: Smart Select (semantic predicate)",
-                 "readOnlyHint": True},
+    annotations={"title": "Entity: Smart Select (semantic predicate)", "readOnlyHint": True},
     tags={"premium", "select"},
 )
 async def entity_select_smart(
-    predicate: Annotated[dict, Field(description=(
-        "Predicate dict (all keys optional, AND-ed): "
-        "type (e.g. 'LINE'), layer (name), near ([x,y,radius]), "
-        "length_range ([min,max], LINE/ARC only), color (ACI int)."
-    ))],
+    predicate: Annotated[
+        dict,
+        Field(
+            description=(
+                "Predicate dict (all keys optional, AND-ed): "
+                "type (e.g. 'LINE'), layer (name), near ([x,y,radius]), "
+                "length_range ([min,max], LINE/ARC only), color (ACI int)."
+            )
+        ),
+    ],
     ctx: Context = None,
 ) -> list[dict]:
     """Select entities by semantic predicate instead of memorising handles."""
@@ -2985,29 +3482,45 @@ async def entity_select_smart(
 # from LINE + TEXT so the same frame renders on COM and ezdxf. The datum-
 # consistency rule is enforced by the `gdt` critique focus at finalize time.
 
+
 @mcp.tool(
-    annotations={"title": "GD&T: Feature Control Frame (ISO 1101)",
-                 "destructiveHint": False},
+    annotations={"title": "GD&T: Feature Control Frame (ISO 1101)", "destructiveHint": False},
     tags={"engineering", "gdt"},
 )
 async def gd_frame(
-    symbol: Annotated[str, Field(description=(
-        "Geometric characteristic: straightness, flatness, circularity, "
-        "cylindricity, profile_line, profile_surface, angularity, "
-        "perpendicularity, parallelism, position, concentricity, symmetry, "
-        "circular_runout, total_runout."))],
+    symbol: Annotated[
+        str,
+        Field(
+            description=(
+                "Geometric characteristic: straightness, flatness, circularity, "
+                "cylindricity, profile_line, profile_surface, angularity, "
+                "perpendicularity, parallelism, position, concentricity, symmetry, "
+                "circular_runout, total_runout."
+            )
+        ),
+    ],
     tolerance: Annotated[float, "Tolerance zone value (mm)."],
     x: Annotated[float, "Frame bottom-left corner X."],
     y: Annotated[float, "Frame bottom-left corner Y."],
-    datums: Annotated[list[str] | None, Field(default=None,
-        description="Ordered datum references, e.g. ['A','B']. Required for "
-                    "orientation/location/runout characteristics.")] = None,
-    height: Annotated[float, Field(default=5.0, gt=0,
-        description="Frame height (mm); text scales with it.")] = 5.0,
-    diameter: Annotated[bool, Field(default=False,
-        description="Prefix ⌀ for a cylindrical (diametral) tolerance zone.")] = False,
-    modifier: Annotated[str | None, Field(default=None,
-        description="Material-condition modifier: M (MMC), L (LMC), S (RFS).")] = None,
+    datums: Annotated[
+        list[str] | None,
+        Field(
+            default=None,
+            description="Ordered datum references, e.g. ['A','B']. Required for "
+            "orientation/location/runout characteristics.",
+        ),
+    ] = None,
+    height: Annotated[
+        float, Field(default=5.0, gt=0, description="Frame height (mm); text scales with it.")
+    ] = 5.0,
+    diameter: Annotated[
+        bool,
+        Field(default=False, description="Prefix ⌀ for a cylindrical (diametral) tolerance zone."),
+    ] = False,
+    modifier: Annotated[
+        str | None,
+        Field(default=None, description="Material-condition modifier: M (MMC), L (LMC), S (RFS)."),
+    ] = None,
     layer: Annotated[str | None, "Layer (defaults to the active DIM layer)."] = None,
     ctx: Context = None,
 ) -> dict:
@@ -3017,21 +3530,27 @@ async def gd_frame(
     `gdt` critique focus flags any datum with no matching datum feature.
     """
     return await _backend(ctx).draw_feature_control_frame(
-        symbol, tolerance, x, y, datums, height, diameter, modifier, layer,
+        symbol,
+        tolerance,
+        x,
+        y,
+        datums,
+        height,
+        diameter,
+        modifier,
+        layer,
     )
 
 
 @mcp.tool(
-    annotations={"title": "GD&T: Datum Feature (ISO 1101)",
-                 "destructiveHint": False},
+    annotations={"title": "GD&T: Datum Feature (ISO 1101)", "destructiveHint": False},
     tags={"engineering", "gdt"},
 )
 async def datum_feature(
     letter: Annotated[str, "Datum letter, e.g. 'A' (avoid I, O, Q per ISO 1101)."],
     x: Annotated[float, "Datum triangle apex X (on the referenced feature)."],
     y: Annotated[float, "Datum triangle apex Y."],
-    size: Annotated[float, Field(default=5.0, gt=0,
-        description="Triangle/label size (mm).")] = 5.0,
+    size: Annotated[float, Field(default=5.0, gt=0, description="Triangle/label size (mm).")] = 5.0,
     layer: Annotated[str | None, "Layer (defaults to the active DIM layer)."] = None,
     ctx: Context = None,
 ) -> dict:
@@ -3044,8 +3563,183 @@ async def datum_feature(
 
 
 # ---------------------------------------------------------------------------
+# ── SECTION 15: Layouts & Paper Space (4 tools) ─────────────────────────────
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(
+    annotations={"title": "List Layouts", "readOnlyHint": True},
+    tags={"layout", "query"},
+)
+async def layout_list(ctx: Context = None) -> dict:
+    """List all layout tabs (Model + paper-space layouts) and the current one."""
+    return await _backend(ctx).layout_list()
+
+
+@mcp.tool(
+    annotations={"title": "Create Layout", "destructiveHint": False},
+    tags={"layout"},
+)
+async def layout_create(
+    name: Annotated[str, "New paper-space layout name (e.g. 'A3-Sheet')."],
+    ctx: Context = None,
+) -> dict:
+    """Create a new paper-space layout tab."""
+    await ctx.info(f"Creating layout {name}")
+    return await _backend(ctx).layout_create(name)
+
+
+@mcp.tool(
+    annotations={"title": "Set Current Layout"},
+    tags={"layout"},
+)
+async def layout_set_current(
+    name: Annotated[str, "Layout tab to activate ('Model' or a paper-space layout)."],
+    ctx: Context = None,
+) -> dict:
+    """Activate a layout tab."""
+    return await _backend(ctx).layout_set_current(name)
+
+
+@mcp.tool(
+    annotations={"title": "Create Viewport", "destructiveHint": False},
+    tags={"layout"},
+)
+async def viewport_create(
+    layout: Annotated[str, "Paper-space layout that receives the viewport."],
+    center_x: Annotated[float, "Viewport center X in paper units."],
+    center_y: Annotated[float, "Viewport center Y in paper units."],
+    width: Annotated[float, Field(gt=0, description="Viewport width in paper units.")],
+    height: Annotated[float, Field(gt=0, description="Viewport height in paper units.")],
+    view_center_x: Annotated[float, "Model-space X the viewport looks at."],
+    view_center_y: Annotated[float, "Model-space Y the viewport looks at."],
+    scale: Annotated[
+        float,
+        Field(gt=0, description="Paper:model scale (1.0 = 1:1, 0.5 = 1:2, 2.0 = 2:1)."),
+    ] = 1.0,
+    ctx: Context = None,
+) -> dict:
+    """Place a scaled model-space viewport on a paper-space layout.
+
+    The viewport window shows the model region centered at
+    (view_center_x, view_center_y); view height = height / scale.
+    """
+    await ctx.info(f"Creating viewport on {layout} at {scale}:1")
+    return await _backend(ctx).viewport_create(
+        layout, center_x, center_y, width, height, view_center_x, view_center_y, scale
+    )
+
+
+# ---------------------------------------------------------------------------
+# ── SECTION 16: 3D Solids (5 tools) — opt-in via ENABLE_3D ──────────────────
+# ---------------------------------------------------------------------------
+
+
+def _require_3d() -> None:
+    """3D solids are opt-in: hidden from discovery and rejected when disabled."""
+    if not config.settings.enable_3d:
+        raise ToolError(
+            "3D solids are disabled. Set ENABLE_3D=true (COM backend with live "
+            "AutoCAD required; the headless backend cannot generate ACIS solids)."
+        )
+
+
+@mcp.tool(
+    annotations={"title": "Solid: Box", "destructiveHint": False},
+    tags={"solid"},
+)
+async def solid_box(
+    cx: Annotated[float, "Box center X."],
+    cy: Annotated[float, "Box center Y."],
+    cz: Annotated[float, "Box center Z."],
+    length: Annotated[float, Field(gt=0, description="Length along X (mm).")],
+    width: Annotated[float, Field(gt=0, description="Width along Y (mm).")],
+    height: Annotated[float, Field(gt=0, description="Height along Z (mm).")],
+    ctx: Context = None,
+) -> dict:
+    """Create a native 3D solid box (COM backend, opt-in)."""
+    _require_3d()
+    return await _backend(ctx).solid_box(cx, cy, cz, length, width, height)
+
+
+@mcp.tool(
+    annotations={"title": "Solid: Cylinder", "destructiveHint": False},
+    tags={"solid"},
+)
+async def solid_cylinder(
+    cx: Annotated[float, "Base-center X."],
+    cy: Annotated[float, "Base-center Y."],
+    cz: Annotated[float, "Center Z (AutoCAD places the cylinder center here)."],
+    radius: Annotated[float, Field(gt=0, description="Cylinder radius (mm).")],
+    height: Annotated[float, Field(gt=0, description="Cylinder height (mm).")],
+    ctx: Context = None,
+) -> dict:
+    """Create a native 3D solid cylinder (COM backend, opt-in)."""
+    _require_3d()
+    return await _backend(ctx).solid_cylinder(cx, cy, cz, radius, height)
+
+
+@mcp.tool(
+    annotations={"title": "Solid: Extrude", "destructiveHint": False},
+    tags={"solid"},
+)
+async def solid_extrude(
+    profile_handle: Annotated[str, "Handle of a closed profile (circle / closed polyline)."],
+    height: Annotated[float, "Extrusion height; negative extrudes downward."],
+    taper_angle: Annotated[
+        float, Field(default=0.0, ge=-45, le=45, description="Taper angle in degrees.")
+    ] = 0.0,
+    ctx: Context = None,
+) -> dict:
+    """Extrude a closed profile into a native 3D solid (COM backend, opt-in)."""
+    _require_3d()
+    return await _backend(ctx).solid_extrude(profile_handle, height, taper_angle)
+
+
+@mcp.tool(
+    annotations={"title": "Solid: Revolve", "destructiveHint": False},
+    tags={"solid"},
+)
+async def solid_revolve(
+    profile_handle: Annotated[str, "Handle of a closed profile (circle / closed polyline)."],
+    axis_x1: Annotated[float, "Revolution axis start X."],
+    axis_y1: Annotated[float, "Revolution axis start Y."],
+    axis_x2: Annotated[float, "Revolution axis end X."],
+    axis_y2: Annotated[float, "Revolution axis end Y."],
+    angle: Annotated[
+        float, Field(default=360.0, gt=0, le=360, description="Revolution angle in degrees.")
+    ] = 360.0,
+    ctx: Context = None,
+) -> dict:
+    """Revolve a closed profile around an axis into a native 3D solid (COM, opt-in)."""
+    _require_3d()
+    return await _backend(ctx).solid_revolve(
+        profile_handle, axis_x1, axis_y1, axis_x2, axis_y2, angle
+    )
+
+
+@mcp.tool(
+    annotations={"title": "Solid: Boolean", "destructiveHint": True},
+    tags={"solid"},
+)
+async def solid_boolean(
+    target_handle: Annotated[str, "Handle of the solid that receives the result."],
+    tool_handle: Annotated[str, "Handle of the solid consumed by the operation."],
+    operation: Annotated[str, "union | subtract | intersect"],
+    ctx: Context = None,
+) -> dict:
+    """Boolean-combine two native 3D solids (COM backend, opt-in).
+
+    The tool solid is consumed; the target holds the result.
+    """
+    _require_3d()
+    return await _backend(ctx).solid_boolean(target_handle, tool_handle, operation)
+
+
+# ---------------------------------------------------------------------------
 # ── RESOURCES ───────────────────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
+
 
 @mcp.resource(
     "autocad://drawing/info",
@@ -3170,6 +3864,7 @@ async def resource_entities_by_layer(layer_name: str, ctx: Context = None) -> st
 # ---------------------------------------------------------------------------
 # ── PROMPTS ──────────────────────────────────────────────────────────────────
 # ---------------------------------------------------------------------------
+
 
 @mcp.prompt(tags={"template", "architectural"})
 def prompt_floor_plan(
