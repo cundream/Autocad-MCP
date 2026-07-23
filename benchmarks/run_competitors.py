@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import importlib
 import json
 import platform
 import subprocess
@@ -15,6 +16,19 @@ from pathlib import Path
 
 from benchmarks.adapters.base import BenchmarkAdapter, TaskResult
 from benchmarks.tasks_v2 import TASKS_V2, TaskSpec, task_by_id
+
+
+def _load_registry() -> dict[str, dict]:
+    """Read competitors.yaml (JSON content) into an id -> entry registry."""
+    path = Path(__file__).with_name("competitors.yaml")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return {entry["id"]: entry for entry in data.get("competitors", [])}
+
+
+def _make_adapter(entry: dict, backend: str) -> BenchmarkAdapter:
+    module_name, _, attr = entry["adapter"].partition(":")
+    adapter_cls = getattr(importlib.import_module(module_name), attr)
+    return adapter_cls(backend=backend)
 
 
 def _git_sha() -> str | None:
@@ -91,9 +105,7 @@ async def run_tasks(
     total_weight = sum(weight_by_id.values())
     supported_weight = sum(weight_by_id[item.task_id] for item in supported)
     weighted_score = sum(
-        weight_by_id[item.task_id] * item.score
-        for item in results
-        if item.status != "unsupported"
+        weight_by_id[item.task_id] * item.score for item in results if item.status != "unsupported"
     )
     return {
         "schema_version": "2.0",
@@ -122,10 +134,15 @@ async def run_tasks(
     }
 
 
-def _parser() -> argparse.ArgumentParser:
+def _parser(registry: dict[str, dict]) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--list", action="store_true", help="List the fixed benchmark tasks")
-    parser.add_argument("--server", default="autocad-mcp-pro", choices=["autocad-mcp-pro"])
+    parser.add_argument(
+        "--server",
+        default="autocad-mcp-pro",
+        choices=sorted(registry),
+        help="Adapter id from benchmarks/competitors.yaml",
+    )
     parser.add_argument("--backend", default="ezdxf", choices=["ezdxf", "com"])
     parser.add_argument("--task", action="append", help="Run only this task id (repeatable)")
     parser.add_argument("--artifact-dir", default="benchmarks/results/latest")
@@ -135,19 +152,22 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    args = _parser().parse_args()
+    registry = _load_registry()
+    args = _parser(registry).parse_args()
     if args.list:
         for task in TASKS_V2:
             print(f"{task.task_id}\t{task.category}\t{task.description}")
         return
 
-    from benchmarks.adapters.autocad_mcp_pro import AutoCADMCPProAdapter
-
+    entry = registry[args.server]
+    supported_backends = entry.get("backends", ["ezdxf"])
+    if args.backend not in supported_backends:
+        raise SystemExit(
+            f"{args.server} supports backends {supported_backends}, not {args.backend!r}"
+        )
     tasks = [task_by_id(task_id) for task_id in args.task] if args.task else list(TASKS_V2)
-    adapter = AutoCADMCPProAdapter(backend=args.backend)
-    report = asyncio.run(
-        run_tasks(adapter, tasks, args.artifact_dir, timeout=args.timeout)
-    )
+    adapter = _make_adapter(entry, args.backend)
+    report = asyncio.run(run_tasks(adapter, tasks, args.artifact_dir, timeout=args.timeout))
     rendered = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)
     print(rendered)
 

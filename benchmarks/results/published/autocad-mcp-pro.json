@@ -1,0 +1,270 @@
+{
+  "adapter": "autocad-mcp-pro",
+  "adapter_metadata": {
+    "backend": "ezdxf",
+    "capabilities": {
+      "backend": "ezdxf",
+      "features": {
+        "delivery": {
+          "mode": "shared",
+          "reason": null,
+          "supported": true
+        },
+        "drawing_2d": {
+          "mode": "native",
+          "reason": null,
+          "supported": true
+        },
+        "dxf": {
+          "mode": "native",
+          "reason": null,
+          "supported": true
+        },
+        "lisp": {
+          "mode": null,
+          "reason": "live_com_only",
+          "supported": false
+        },
+        "mleader": {
+          "mode": "composite",
+          "reason": null,
+          "supported": true
+        },
+        "paper_space": {
+          "mode": null,
+          "reason": "planned_1.4",
+          "supported": false
+        },
+        "pdf": {
+          "mode": "rendered",
+          "reason": null,
+          "supported": true
+        },
+        "png": {
+          "mode": "rendered",
+          "reason": null,
+          "supported": true
+        },
+        "preflight": {
+          "mode": "shared",
+          "reason": null,
+          "supported": true
+        },
+        "refiner": {
+          "mode": "shared",
+          "reason": null,
+          "supported": true
+        },
+        "solid_3d": {
+          "mode": null,
+          "reason": "planned_1.5",
+          "supported": false
+        },
+        "table": {
+          "mode": "composite",
+          "reason": null,
+          "supported": true
+        },
+        "transactions": {
+          "mode": "snapshot",
+          "reason": null,
+          "supported": true
+        }
+      }
+    }
+  },
+  "environment": {
+    "implementation": "CPython",
+    "machine": "AMD64",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.0"
+  },
+  "generated_at": "2026-07-23T11:39:04.277175+00:00",
+  "git_sha": "4a2e9d658f051cb756f92cb8fae945c64b8cc7d4",
+  "results": [
+    {
+      "artifacts": [],
+      "duration_ms": 8.14,
+      "message": "",
+      "metrics": {
+        "line_length": 5.0
+      },
+      "score": 100.0,
+      "status": "pass",
+      "stderr_summary": "",
+      "stdout_summary": "",
+      "task_id": "core_geometry"
+    },
+    {
+      "artifacts": [],
+      "duration_ms": 3.39,
+      "message": "",
+      "metrics": {},
+      "score": 100.0,
+      "status": "pass",
+      "stderr_summary": "",
+      "stdout_summary": "",
+      "task_id": "modify_query"
+    },
+    {
+      "artifacts": [],
+      "duration_ms": 8.11,
+      "message": "",
+      "metrics": {},
+      "score": 100.0,
+      "status": "pass",
+      "stderr_summary": "",
+      "stdout_summary": "",
+      "task_id": "layers_linetypes"
+    },
+    {
+      "artifacts": [],
+      "duration_ms": 348.74,
+      "message": "",
+      "metrics": {
+        "entity_type": "DIMENSION"
+      },
+      "score": 100.0,
+      "status": "pass",
+      "stderr_summary": "",
+      "stdout_summary": "",
+      "task_id": "dimensions"
+    },
+    {
+      "artifacts": [],
+      "duration_ms": 15.74,
+      "message": "",
+      "metrics": {
+        "representations": [
+          "composite",
+          "composite"
+        ]
+      },
+      "score": 100.0,
+      "status": "pass",
+      "stderr_summary": "",
+      "stdout_summary": "",
+      "task_id": "table_mleader"
+    },
+    {
+      "artifacts": [],
+      "duration_ms": 28.95,
+      "message": "",
+      "metrics": {
+        "entity_count": 0
+      },
+      "score": 100.0,
+      "status": "pass",
+      "stderr_summary": "",
+      "stdout_summary": "",
+      "task_id": "transactions"
+    },
+    {
+      "artifacts": [],
+      "duration_ms": 2.5,
+      "message": "",
+      "metrics": {},
+      "score": 100.0,
+      "status": "pass",
+      "stderr_summary": "",
+      "stdout_summary": "",
+      "task_id": "preflight"
+    },
+    {
+      "artifacts": [],
+      "duration_ms": 29.19,
+      "message": "",
+      "metrics": {
+        "final_score": 100.0,
+        "initial_score": 92.0,
+        "remaining_issues": [],
+        "rounds": [
+          {
+            "actions": [
+              {
+                "detail": {
+                  "deleted_handle": "3E",
+                  "kept_handle": "3D"
+                },
+                "fingerprint": "c1b87eac3cfdf11312c9b18ccf4c062e672791f7a9a6dfa3c45b6db7f9e5835e",
+                "focus": "duplicate_entities",
+                "handles": [
+                  "3D",
+                  "3E"
+                ],
+                "status": "applied"
+              }
+            ],
+            "error_count_after": 0,
+            "error_count_before": 0,
+            "number": 1,
+            "score_after": 100.0,
+            "score_before": 92.0,
+            "transaction": "committed"
+          }
+        ],
+        "status": "threshold_met"
+      },
+      "score": 100.0,
+      "status": "pass",
+      "stderr_summary": "",
+      "stdout_summary": "",
+      "task_id": "quality_refiner"
+    },
+    {
+      "artifacts": [
+        {
+          "filename": "roundtrip.dxf",
+          "sha256": "6413204a5baec19a5fbf551418eb56e30b1488ca5bb755e6a8709ac8e8ab0b22",
+          "size_bytes": 18442
+        }
+      ],
+      "duration_ms": 16.66,
+      "message": "",
+      "metrics": {
+        "entity_count": 1
+      },
+      "score": 100.0,
+      "status": "pass",
+      "stderr_summary": "",
+      "stdout_summary": "",
+      "task_id": "dxf_roundtrip"
+    },
+    {
+      "artifacts": [
+        {
+          "filename": "manifest.json",
+          "sha256": "38c2ee819b49b9c66b2311b952e856eff9e3a7565194cce2edea60a3211d233b",
+          "size_bytes": 3581
+        }
+      ],
+      "duration_ms": 4380.8,
+      "message": "",
+      "metrics": {
+        "score": {
+          "errors": 0,
+          "grade": "A",
+          "info": 0,
+          "invalidity_ratio": 0.0,
+          "score": 100.0,
+          "warnings": 0
+        }
+      },
+      "score": 100.0,
+      "status": "pass",
+      "stderr_summary": "",
+      "stdout_summary": "",
+      "task_id": "auditable_delivery"
+    }
+  ],
+  "schema_version": "2.0",
+  "summary": {
+    "attempted": 10,
+    "coverage_percent": 100.0,
+    "passed": 10,
+    "score": 100.0,
+    "supported": 10,
+    "unsupported": 0
+  },
+  "timeout_seconds": 30.0
+}

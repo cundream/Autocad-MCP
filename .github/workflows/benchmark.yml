@@ -1,0 +1,43 @@
+name: Benchmark
+
+# Headless competitor benchmark (v2 fixed-task matrix). Manual or weekly:
+# clones the pinned competitor SHAs, runs the black-box MCP stdio lane and
+# uploads the machine-readable reports as artifacts. Results committed to
+# benchmarks/results/ are produced from these runs.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"
+
+jobs:
+  headless-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        server:
+          - autocad-mcp-pro
+          - puran-water-autocad-mcp
+          - beiming183-autocad-mcp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e ".[pdf]"
+      - name: Run benchmark (ezdxf lane)
+        run: |
+          python -m benchmarks.run_competitors \
+            --server "${{ matrix.server }}" \
+            --backend ezdxf \
+            --artifact-dir "benchmarks/results/ci/${{ matrix.server }}" \
+            > "report-${{ matrix.server }}.json"
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ matrix.server }}
+          path: |
+            report-${{ matrix.server }}.json
+            benchmarks/results/ci/${{ matrix.server }}

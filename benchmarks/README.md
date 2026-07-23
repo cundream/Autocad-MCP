@@ -42,10 +42,50 @@ python -m benchmarks.run_competitors --server autocad-mcp-pro --backend ezdxf --
 python -m benchmarks.run_competitors --task table_mleader --task auditable_delivery --json
 ```
 
-The release-machine v1.3 ezdxf self-check is **10/10 (100.0)**. It is not a
-competitor ranking. Cross-project scores become comparable only when another
-adapter runs this exact task matrix; repository stars and raw tool counts do not
-contribute to the score. Adapter registration lives in `competitors.yaml`.
+The release-machine ezdxf self-check is **10/10 (100.0)**. Repository stars and
+raw tool counts do not contribute to the score. Adapter registration lives in
+`competitors.yaml`.
+
+## Live competitor lane (v1.4)
+
+Two competitor adapters now execute the exact same task matrix, black-box over
+MCP stdio, against commits pinned in `competitors.yaml`:
+
+| Server | Pinned | Score | Pass | Coverage |
+|---|---|---:|---:|---:|
+| autocad-mcp-pro (reference) | working tree | 100.0 | 10/10 | 100% |
+| beiming183-cloud/AutoCAD-MCP | `11f7c47e` | 50.0 | 5/10 | 50% |
+| puran-water/autocad-mcp | `95476a33` | 45.0 | 4/10 | 50% |
+
+Method and boundaries:
+
+- `benchmarks/competitors_env.py` clones the pinned SHA into
+  `benchmarks/.competitors/<id>/` (gitignored), builds an isolated venv, and
+  installs the competitor from its own `pyproject.toml`.
+- `benchmarks/adapters/mcp_stdio.py` drives the competitor exactly like an MCP
+  host (fastmcp `Client` over stdio). No competitor code is imported.
+- Task playbooks call each server's **own documented tool contract**, read from
+  the pinned source (consolidated `operation` + payload tools; beiming's
+  `doc_id`/`expected_revision` discipline is honored via
+  `transaction(operation="context")`).
+- **Verification never trusts the competitor's response**: every geometry claim
+  must survive `save`/`save_as_dxf` and re-opening the DXF with ezdxf inside
+  the harness.
+- Tasks with no documented equivalent are reported `unsupported` with the
+  reason string; they stay in the fixed-matrix denominator at score zero.
+- This lane is headless (ezdxf backends only). File-IPC / live-AutoCAD lanes
+  (including COM-only servers such as best-cad-mcp or daobataotie/CAD-MCP)
+  require a local AutoCAD session and are out of CI scope by design.
+
+Published machine-readable reports (artifact paths sanitized to filenames)
+live under [`results/published/`](results/published/); the README chart is
+regenerated from them:
+
+```bash
+python -m benchmarks.run_competitors --server puran-water-autocad-mcp --backend ezdxf
+python -m benchmarks.run_competitors --server beiming183-autocad-mcp --backend ezdxf
+python -m benchmarks.render_live_chart
+```
 
 ## Correctness A/B suite
 
