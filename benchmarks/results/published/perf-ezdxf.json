@@ -1,0 +1,56 @@
+{
+  "backend": "ezdxf",
+  "environment": {
+    "implementation": "CPython",
+    "machine": "AMD64",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.0"
+  },
+  "schema_version": "perf/1.0",
+  "workloads": [
+    {
+      "description": "Create 2,000 lines through individual backend calls",
+      "detail": {
+        "entity_count": 2000
+      },
+      "metric": "entities_per_second",
+      "metric_value": 3148.0,
+      "wall_ms": 635.3,
+      "workload_id": "create_lines_2k"
+    },
+    {
+      "description": "Create 10,000 lines, export DXF, reopen and verify",
+      "detail": {
+        "build_ms": 10884.9,
+        "entity_count": 10000,
+        "export_ms": 1439.2,
+        "file_bytes": 1369662,
+        "reopen_ms": 1607.5
+      },
+      "metric": "entities_per_second",
+      "metric_value": 717.8,
+      "wall_ms": 13931.6,
+      "workload_id": "roundtrip_10k"
+    },
+    {
+      "description": "Crossing-selection region query over 10,000 entities",
+      "detail": {
+        "entity_count": 10000
+      },
+      "metric": "entities_matched",
+      "metric_value": 2500.0,
+      "wall_ms": 3434.2,
+      "workload_id": "region_query_10k"
+    },
+    {
+      "description": "Plate with hole: ISO layers, geometry, dimensions and full critique",
+      "detail": {
+        "entities": 7
+      },
+      "metric": "critique_issues",
+      "metric_value": 0.0,
+      "wall_ms": 315.9,
+      "workload_id": "premium_pass"
+    }
+  ]
+}

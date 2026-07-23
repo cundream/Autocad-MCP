@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Headless performance lane** (`benchmarks/perf_suite.py` +
+  `render_perf_chart.py`): fixed wall-time workloads (2k individual creates,
+  10k build/export/reopen roundtrip, 10k region query, full premium quality
+  pass) measured through the same backend methods the MCP tools call;
+  machine fingerprint recorded, self-measurement only.
+- **Task-matrix chart** (`benchmarks/render_matrix_chart.py`): tasks × servers
+  status heatmap rendered from the published live-run reports, so coverage
+  gaps are visible per capability instead of one folded score.
+
+### Changed
+
+- README rebuilt: PyPI-first install, a four-lane benchmark section with
+  Python-generated visuals (scores, task matrix, performance, source review),
+  v1.4 feature table, updated client/config/roadmap sections.
+- `render_live_chart` now skips non-task-matrix reports so multiple lanes can
+  share `benchmarks/results/published/`.
+
 _Next (1.5): screenshot overlay + handle grounding v1, ezdxf redo (forward
 snapshots), COM `block_create_from_entities`, ISO 286 transition/interference
 hole letters (delta rule), titleblock on paper-space layouts._

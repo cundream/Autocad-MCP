@@ -23,7 +23,7 @@ def load_reports(input_dir: Path) -> list[dict[str, Any]]:
     for path in sorted(input_dir.glob("*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
         if data.get("schema_version") != "2.0":
-            raise ValueError(f"{path.name}: unsupported schema_version")
+            continue  # other lanes (e.g. perf/1.0) share the published folder
         summary = data.get("summary") or {}
         if "score" not in summary or "coverage_percent" not in summary:
             raise ValueError(f"{path.name}: summary is missing score/coverage")

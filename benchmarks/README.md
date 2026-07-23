@@ -78,13 +78,31 @@ Method and boundaries:
   require a local AutoCAD session and are out of CI scope by design.
 
 Published machine-readable reports (artifact paths sanitized to filenames)
-live under [`results/published/`](results/published/); the README chart is
+live under [`results/published/`](results/published/); the README charts are
 regenerated from them:
 
 ```bash
 python -m benchmarks.run_competitors --server puran-water-autocad-mcp --backend ezdxf
 python -m benchmarks.run_competitors --server beiming183-autocad-mcp --backend ezdxf
-python -m benchmarks.render_live_chart
+python -m benchmarks.render_live_chart     # score bars
+python -m benchmarks.render_matrix_chart   # tasks x servers status heatmap
+```
+
+## Headless performance lane
+
+`perf_suite.py` measures wall time on fixed workloads through the same backend
+methods the MCP tools call (server-side overhead included): 2,000 individual
+line creates, a 10,000-entity build → DXF export → reopen roundtrip, a region
+query over 10,000 entities, and a full premium quality pass (ISO layers,
+geometry, dimensions, complete critique). The report records the machine
+fingerprint; numbers move with hardware, workload definitions do not.
+**Self-measurement only** — competitor servers would pay an extra stdio
+serialization cost that in-process runs do not, so no cross-server timing
+claims are made.
+
+```bash
+python -m benchmarks.perf_suite --out benchmarks/results/published/perf-ezdxf.json
+python -m benchmarks.render_perf_chart
 ```
 
 ## Correctness A/B suite
