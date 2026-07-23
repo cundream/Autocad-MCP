@@ -121,6 +121,20 @@ python benchmarks/compare_versions.py v1.0.0     # vs a tag/ref
 python benchmarks/compare_versions.py --json results.json
 ```
 
+### Result — v1.4.0 vs v1.3.0 (release gate)
+
+21 checks, ezdxf backend, one subprocess per check. Machine-readable report:
+[`results/published/ab-v1.3.0-vs-v1.4.0.json`](results/published/ab-v1.3.0-vs-v1.4.0.json).
+
+| Version | Checks passing | Pass rate | Fixed | Regressed |
+|---------|----------------|-----------|-------|-----------|
+| **v1.3.0** (baseline)     | 21 / 21 | 100 % | — | — |
+| **v1.4.0** (this release) | 21 / 21 | 100 % | 0 | **0** |
+
+The v1.4.0 feature and infrastructure work (CI, packaging, competitor lane,
+tool profiles, paper space, ISO 286 fits, opt-in solids) introduced **zero
+correctness regressions**.
+
 ### Result — v1.1.0 vs v1.0.0 (`origin/main`, commit 15fa2bc)
 
 21 checks, ezdxf backend, CPython 3.14, one subprocess per check.
@@ -167,8 +181,5 @@ not a cherry-picked list of failures; the baseline genuinely does basic CAD work
 - COM-backend behaviour is not covered here (no live AutoCAD); see the mocked-COM
   suites in `tests/`.
 
-## Performance (throughput) — coming
-
-Scale / throughput numbers (1k–100k entities, render timings, model-by-model
-tool-call success rate) are tracked in the main README and will be published here
-with a hardware footprint.
+Model-by-model tool-call success rates remain future work; scale/throughput
+numbers live in the headless performance lane above.

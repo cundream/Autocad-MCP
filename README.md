@@ -101,7 +101,35 @@ python -m benchmarks.perf_suite --out benchmarks/results/published/perf-ezdxf.js
 python -m benchmarks.render_perf_chart
 ```
 
-### 4 · Source-reviewed capability rubric (context)
+### 4 · Version A/B — every release re-proves correctness
+
+`compare_versions.py` runs the same 21 deterministic, headless correctness
+checks against the previous release tag and the current tree — each check in
+its own subprocess, so a hard crash counts as a miss instead of killing the
+run.
+
+**v1.4.0 release gate** (baseline `v1.3.0`, report:
+[`ab-v1.3.0-vs-v1.4.0.json`](benchmarks/results/published/ab-v1.3.0-vs-v1.4.0.json)):
+
+| Version | Checks passing | Pass rate | Fixed | Regressed |
+|---|---:|---:|---:|---:|
+| v1.3.0 (baseline) | 21 / 21 | 100 % | — | — |
+| **v1.4.0** (this release) | **21 / 21** | **100 %** | 0 | **0** |
+
+v1.4.0 added CI, packaging, benchmarks, tool profiles, paper space, ISO 286
+fits and opt-in 3D solids **without breaking a single correctness check**.
+For contrast, the same suite caught the v1.0.0 → v1.1.0 jump:
+
+| Version | Checks passing | Pass rate |
+|---|---:|---:|
+| v1.0.0 (first public release) | 8 / 21 | 38.1 % |
+| v1.1.0 | 21 / 21 | 100 % |
+
+```bash
+python benchmarks/compare_versions.py v1.3.0 --json ab.json
+```
+
+### 5 · Source-reviewed capability rubric (context)
 
 ![Source-reviewed AutoCAD MCP capability benchmark](docs/assets/autocad-mcp-benchmark.svg)
 
