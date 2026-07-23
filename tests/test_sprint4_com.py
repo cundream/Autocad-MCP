@@ -44,7 +44,9 @@ async def test_find_hwnd_prefers_application_hwnd(monkeypatch):
     monkeypatch.setattr(cb, "_WIN32_AVAILABLE", True)
 
     enum = MagicMock(side_effect=AssertionError("EnumWindows must not be called"))
-    monkeypatch.setattr(cb, "win32gui", MagicMock(EnumWindows=enum))
+    # raising=False: the win32gui module global only exists on Windows; the
+    # mock must be injectable on the Linux CI leg as well.
+    monkeypatch.setattr(cb, "win32gui", MagicMock(EnumWindows=enum), raising=False)
 
     assert cb._find_autocad_hwnd() == 0xABCD
     enum.assert_not_called()
@@ -56,7 +58,7 @@ async def test_find_hwnd_coerces_hwnd_to_int(monkeypatch):
     app.HWND = "43981"  # COM can hand back a stringy handle
     monkeypatch.setattr(cb, "_acad_app", lambda: app)
     monkeypatch.setattr(cb, "_WIN32_AVAILABLE", True)
-    monkeypatch.setattr(cb, "win32gui", MagicMock())
+    monkeypatch.setattr(cb, "win32gui", MagicMock(), raising=False)
 
     result = cb._find_autocad_hwnd()
     assert result == 43981
@@ -81,7 +83,7 @@ async def test_find_hwnd_falls_back_to_enumwindows(monkeypatch):
     win32gui.EnumWindows.side_effect = _enum_windows
     win32gui.GetWindowText.return_value = "AutoCAD 2025 - [Drawing1.dwg]"
     win32gui.IsWindowVisible.return_value = True
-    monkeypatch.setattr(cb, "win32gui", win32gui)
+    monkeypatch.setattr(cb, "win32gui", win32gui, raising=False)
 
     assert cb._find_autocad_hwnd() == 0x1234
     win32gui.EnumWindows.assert_called_once()
