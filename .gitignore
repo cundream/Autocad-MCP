@@ -52,3 +52,6 @@ benchmarks/.competitors/
 
 # Local editor/agent state
 .cursor/
+
+# Stale/unvetted lockfile (regenerate deliberately with 'uv lock' if adopting uv)
+uv.lock
