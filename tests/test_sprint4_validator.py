@@ -37,7 +37,11 @@ async def test_spur_as_substring_does_not_false_match(backend, tmp_path):
     """R27: 'SPURIOUS' contains 'spur' but must NOT trip a SPUR mismatch."""
     await _bootstrap(backend)
     await backend.entity_create_text(
-        text="SPURIOUS HELICAL GEAR", x=0, y=0, height=5, layer="TEXT",
+        text="SPURIOUS HELICAL GEAR",
+        x=0,
+        y=0,
+        height=5,
+        layer="TEXT",
     )
     await backend.drawing_save_as(str(tmp_path / "spurious.dxf"))
     result = await DrawingValidator().run(backend, expected={"helix_angle": 15})
@@ -50,7 +54,11 @@ async def test_genuine_spur_title_flags_when_helical_expected(backend, tmp_path)
     """R27: a real 'SPUR GEAR' title still flags the mismatch when helix declared."""
     await _bootstrap(backend)
     await backend.entity_create_text(
-        text="SPUR GEAR", x=0, y=0, height=5, layer="TEXT",
+        text="SPUR GEAR",
+        x=0,
+        y=0,
+        height=5,
+        layer="TEXT",
     )
     await backend.drawing_save_as(str(tmp_path / "spur.dxf"))
     result = await DrawingValidator().run(backend, expected={"helix_angle": 15})
@@ -63,7 +71,11 @@ async def test_spur_word_in_titleblock_layer_flags(backend, tmp_path):
     """R27: title-block-scoped scan — SPUR on TITLEBLOCK layer still flags."""
     await _bootstrap(backend)
     await backend.entity_create_text(
-        text="SPUR GEAR", x=0, y=0, height=5, layer="TITLEBLOCK",
+        text="SPUR GEAR",
+        x=0,
+        y=0,
+        height=5,
+        layer="TITLEBLOCK",
     )
     await backend.drawing_save_as(str(tmp_path / "spur_tb.dxf"))
     result = await DrawingValidator().run(backend, expected={"helix_angle": 15})
@@ -74,7 +86,11 @@ async def test_substring_in_titleblock_layer_does_not_false_match(backend, tmp_p
     """R27: 'SPURIOUS' on TITLEBLOCK layer must not trip a SPUR match either."""
     await _bootstrap(backend)
     await backend.entity_create_text(
-        text="SPURIOUS NOTE", x=0, y=0, height=5, layer="TITLEBLOCK",
+        text="SPURIOUS NOTE",
+        x=0,
+        y=0,
+        height=5,
+        layer="TITLEBLOCK",
     )
     await backend.drawing_save_as(str(tmp_path / "spurious_tb.dxf"))
     result = await DrawingValidator().run(backend, expected={"helix_angle": 15})
@@ -87,7 +103,11 @@ async def test_helical_spur_combo_still_flags_invalid(backend, tmp_path):
     """R27: both whole words present -> invalid combo error preserved."""
     await _bootstrap(backend)
     await backend.entity_create_text(
-        text="HELICAL SPUR GEAR", x=0, y=0, height=5, layer="TEXT",
+        text="HELICAL SPUR GEAR",
+        x=0,
+        y=0,
+        height=5,
+        layer="TEXT",
     )
     await backend.drawing_save_as(str(tmp_path / "combo.dxf"))
     result = await DrawingValidator().run(backend, expected={"helix_angle": 15})
@@ -99,7 +119,11 @@ async def test_no_helix_expected_skips_title_check(backend, tmp_path):
     """Gating preserved: without helix_angle, a SPUR title raises no title finding."""
     await _bootstrap(backend)
     await backend.entity_create_text(
-        text="SPUR GEAR", x=0, y=0, height=5, layer="TEXT",
+        text="SPUR GEAR",
+        x=0,
+        y=0,
+        height=5,
+        layer="TEXT",
     )
     await backend.drawing_save_as(str(tmp_path / "nohelix.dxf"))
     result = await DrawingValidator().run(backend)
@@ -116,10 +140,18 @@ async def test_titleblock_layer_takes_precedence_over_text_layer(backend, tmp_pa
     """
     await _bootstrap(backend)
     await backend.entity_create_text(
-        text="HELICAL GEAR", x=0, y=0, height=5, layer="TITLEBLOCK",
+        text="HELICAL GEAR",
+        x=0,
+        y=0,
+        height=5,
+        layer="TITLEBLOCK",
     )
     await backend.entity_create_text(
-        text="SPUR TOOTH DETAIL NOTE", x=0, y=-20, height=3.5, layer="TEXT",
+        text="SPUR TOOTH DETAIL NOTE",
+        x=0,
+        y=-20,
+        height=3.5,
+        layer="TEXT",
     )
     await backend.drawing_save_as(str(tmp_path / "scope.dxf"))
     result = await DrawingValidator().run(backend, expected={"helix_angle": 15})

@@ -13,52 +13,52 @@ log = logging.getLogger(__name__)
 
 ENGINEERING_LAYERS: list[tuple[str, int, str, float, str]] = [
     # (name, color, linetype, lineweight, description)
-    ("0",            7,  "Continuous", 0.25, "default"),
-    ("GEOMETRY",     7,  "Continuous", 0.50, "visible solid edges"),
-    ("HIDDEN",       3,  "HIDDEN",     0.25, "hidden edges"),
-    ("CENTER",       1,  "CENTER",     0.18, "centerlines"),
-    ("PHANTOM",      6,  "PHANTOM",    0.18, "section / cutting planes"),
-    ("DIM",          2,  "Continuous", 0.18, "dimensions"),
-    ("TEXT",         7,  "Continuous", 0.25, "annotations"),
-    ("HATCH",        8,  "Continuous", 0.13, "section hatching"),
-    ("TITLEBLOCK",   7,  "Continuous", 0.50, "drawing border + title"),
+    ("0", 7, "Continuous", 0.25, "default"),
+    ("GEOMETRY", 7, "Continuous", 0.50, "visible solid edges"),
+    ("HIDDEN", 3, "HIDDEN", 0.25, "hidden edges"),
+    ("CENTER", 1, "CENTER", 0.18, "centerlines"),
+    ("PHANTOM", 6, "PHANTOM", 0.18, "section / cutting planes"),
+    ("DIM", 2, "Continuous", 0.18, "dimensions"),
+    ("TEXT", 7, "Continuous", 0.25, "annotations"),
+    ("HATCH", 8, "Continuous", 0.13, "section hatching"),
+    ("TITLEBLOCK", 7, "Continuous", 0.50, "drawing border + title"),
     ("CONSTRUCTION", 250, "Continuous", 0.05, "scratch / construction"),
 ]
 
 
 # P&ID standard layer set (de-facto, distilled from ISO 10628 + common practice).
 PID_LAYERS: list[tuple[str, int, str, float, str]] = [
-    ("0",                          7,  "Continuous", 0.25, "default"),
-    ("PROCESS-PIPING-MAIN",        1,  "Continuous", 0.70, "main process line (heavy)"),
-    ("PROCESS-PIPING-SECONDARY",   2,  "Continuous", 0.50, "secondary process line"),
-    ("PROCESS-EQUIPMENT",          7,  "Continuous", 0.50, "vessels / pumps / drums"),
-    ("PROCESS-VALVES",             3,  "Continuous", 0.35, "valves / fittings"),
-    ("INSTRUMENT-SYMBOL",          4,  "Continuous", 0.35, "instrument bubbles / FCFs"),
-    ("INSTRUMENT-LINE-SIGNAL",     4,  "DASHED",     0.18, "pneumatic / electrical signal"),
-    ("INSTRUMENT-TAG-TEXT",        7,  "Continuous", 0.25, "tag labels"),
-    ("ELECTRICAL-LINE",            6,  "DASHDOT",    0.18, "electrical line"),
-    ("UTILITY-LINE",               5,  "PHANTOM",    0.25, "utility (steam, water, air)"),
-    ("INSULATION-HATCH",           8,  "Continuous", 0.13, "insulation hatch"),
-    ("DIM",                        2,  "Continuous", 0.18, "dimensions"),
-    ("TEXT-NOTES",                 7,  "Continuous", 0.25, "free-form notes"),
-    ("TITLEBLOCK",                 7,  "Continuous", 0.50, "drawing border + title"),
-    ("CONSTRUCTION",               250, "Continuous", 0.05, "scratch / construction"),
+    ("0", 7, "Continuous", 0.25, "default"),
+    ("PROCESS-PIPING-MAIN", 1, "Continuous", 0.70, "main process line (heavy)"),
+    ("PROCESS-PIPING-SECONDARY", 2, "Continuous", 0.50, "secondary process line"),
+    ("PROCESS-EQUIPMENT", 7, "Continuous", 0.50, "vessels / pumps / drums"),
+    ("PROCESS-VALVES", 3, "Continuous", 0.35, "valves / fittings"),
+    ("INSTRUMENT-SYMBOL", 4, "Continuous", 0.35, "instrument bubbles / FCFs"),
+    ("INSTRUMENT-LINE-SIGNAL", 4, "DASHED", 0.18, "pneumatic / electrical signal"),
+    ("INSTRUMENT-TAG-TEXT", 7, "Continuous", 0.25, "tag labels"),
+    ("ELECTRICAL-LINE", 6, "DASHDOT", 0.18, "electrical line"),
+    ("UTILITY-LINE", 5, "PHANTOM", 0.25, "utility (steam, water, air)"),
+    ("INSULATION-HATCH", 8, "Continuous", 0.13, "insulation hatch"),
+    ("DIM", 2, "Continuous", 0.18, "dimensions"),
+    ("TEXT-NOTES", 7, "Continuous", 0.25, "free-form notes"),
+    ("TITLEBLOCK", 7, "Continuous", 0.50, "drawing border + title"),
+    ("CONSTRUCTION", 250, "Continuous", 0.05, "scratch / construction"),
 ]
 
 
 # ISO 13567-style layer naming kit (Agent2-Element6-Presentation2-Status1).
 # This is a *starter* set — extend as needed per discipline.
 ISO13567_LAYERS: list[tuple[str, int, str, float, str]] = [
-    ("0",            7,  "Continuous", 0.25, "default"),
-    ("M-GEOMET-E-N", 7,  "Continuous", 0.50, "Mechanical / geometry / edge / new"),
-    ("M-HIDDEN-E-N", 3,  "HIDDEN",     0.25, "Mechanical / hidden edge"),
-    ("M-CENTL-E-N",  1,  "CENTER",     0.18, "Mechanical / centerlines"),
-    ("M-PHANT-E-N",  6,  "PHANTOM",    0.18, "Mechanical / phantom"),
-    ("M-DIMEN-T-N",  2,  "Continuous", 0.18, "Mechanical / dimension text"),
-    ("M-TEXT-T-N",   7,  "Continuous", 0.25, "Mechanical / annotation text"),
-    ("M-HATCH-H-N",  8,  "Continuous", 0.13, "Mechanical / hatch"),
-    ("M-TITLE-T-N",  7,  "Continuous", 0.50, "Title block"),
-    ("M-CONST-E-N",  250, "Continuous", 0.05, "Construction (scratch)"),
+    ("0", 7, "Continuous", 0.25, "default"),
+    ("M-GEOMET-E-N", 7, "Continuous", 0.50, "Mechanical / geometry / edge / new"),
+    ("M-HIDDEN-E-N", 3, "HIDDEN", 0.25, "Mechanical / hidden edge"),
+    ("M-CENTL-E-N", 1, "CENTER", 0.18, "Mechanical / centerlines"),
+    ("M-PHANT-E-N", 6, "PHANTOM", 0.18, "Mechanical / phantom"),
+    ("M-DIMEN-T-N", 2, "Continuous", 0.18, "Mechanical / dimension text"),
+    ("M-TEXT-T-N", 7, "Continuous", 0.25, "Mechanical / annotation text"),
+    ("M-HATCH-H-N", 8, "Continuous", 0.13, "Mechanical / hatch"),
+    ("M-TITLE-T-N", 7, "Continuous", 0.50, "Title block"),
+    ("M-CONST-E-N", 250, "Continuous", 0.05, "Construction (scratch)"),
 ]
 
 
@@ -73,9 +73,9 @@ LAYER_SET_REGISTRY: dict[str, list[tuple[str, int, str, float, str]]] = {
 # "DIM"/"CONSTRUCTION" (which only exist in the mech/pid sets — iso13567 uses
 # M-DIMEN-T-N / M-CONST-E-N).
 LAYER_ROLES: dict[str, dict[str, str]] = {
-    "mech":     {"dim": "DIM",          "construction": "CONSTRUCTION"},
-    "pid":      {"dim": "DIM",          "construction": "CONSTRUCTION"},
-    "iso13567": {"dim": "M-DIMEN-T-N",  "construction": "M-CONST-E-N"},
+    "mech": {"dim": "DIM", "construction": "CONSTRUCTION"},
+    "pid": {"dim": "DIM", "construction": "CONSTRUCTION"},
+    "iso13567": {"dim": "M-DIMEN-T-N", "construction": "M-CONST-E-N"},
 }
 
 
@@ -84,6 +84,7 @@ def resolve_role_layer(layer_set_id: str | None, role: str) -> str:
     layer set, falling back to the mech/default name when unknown."""
     roles = LAYER_ROLES.get(layer_set_id or "mech", LAYER_ROLES["mech"])
     return roles.get(role, LAYER_ROLES["mech"][role])
+
 
 STANDARD_LINETYPES: list[str] = ["CENTER", "HIDDEN", "PHANTOM", "DASHED", "DASHDOT"]
 
@@ -115,14 +116,14 @@ async def ensure_engineering_layers(backend: AutoCADBackend) -> dict[str, str]:
 
 
 async def apply_layer_set(
-    backend: AutoCADBackend, standard: str = "mech",
+    backend: AutoCADBackend,
+    standard: str = "mech",
 ) -> dict[str, str]:
     """Idempotently apply a named layer set ('mech', 'pid', 'iso13567')."""
     layer_set = LAYER_SET_REGISTRY.get(standard)
     if layer_set is None:
         raise RuntimeError(
-            f"Unknown layer set '{standard}'. "
-            f"Choose one of: {sorted(LAYER_SET_REGISTRY)}"
+            f"Unknown layer set '{standard}'. Choose one of: {sorted(LAYER_SET_REGISTRY)}"
         )
     await ensure_standard_linetypes(backend)
 
@@ -139,7 +140,10 @@ async def apply_layer_set(
             continue
         try:
             await backend.layer_create(
-                name=name, color=color, linetype=linetype, lineweight=lineweight,
+                name=name,
+                color=color,
+                linetype=linetype,
+                lineweight=lineweight,
             )
             results[name] = "created"
         except Exception as exc:

@@ -29,9 +29,7 @@ async def test_ezdxf_table_returns_composite_contract(backend):
 
 
 async def test_ezdxf_table_survives_save_and_reopen(backend, tmp_path):
-    result = await backend.entity_create_table(
-        0, 30, rows=[["A", "1"]], headers=["Name", "Qty"]
-    )
+    result = await backend.entity_create_table(0, 30, rows=[["A", "1"]], headers=["Name", "Qty"])
     path = tmp_path / "table.dxf"
     await backend.drawing_save_as(str(path), fmt="dxf")
     await backend.drawing_open(str(path))
@@ -39,9 +37,7 @@ async def test_ezdxf_table_survives_save_and_reopen(backend, tmp_path):
     entities = await backend.entity_list(limit=100)
     handles = {entity.handle for entity in entities}
     texts = {
-        entity.properties.get("text")
-        for entity in entities
-        if entity.type in {"TEXT", "MTEXT"}
+        entity.properties.get("text") for entity in entities if entity.type in {"TEXT", "MTEXT"}
     }
     assert set(result.properties["child_handles"]).issubset(handles)
     assert {"Name", "Qty", "A", "1"}.issubset(texts)

@@ -12,6 +12,7 @@ The same file is executed against both the baseline worktree and the current
 checkout (PYTHONPATH + cwd point at each repo), so a check that exercises a
 method the old version lacks simply raises AttributeError -> miss.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -23,6 +24,7 @@ import tempfile
 
 async def _b():
     from backends.ezdxf_backend import EzdxfBackend
+
     be = EzdxfBackend()
     await be.connect()
     await be.drawing_new()
@@ -31,11 +33,13 @@ async def _b():
 
 # ── Core capability (expected to pass on BOTH versions — sanity / not rigged) ──
 
+
 async def core_line_length():
     b = await _b()
     ln = await b.entity_create_line(0, 0, 3, 4)
     info = await b.entity_get(ln.handle)
     return abs(float(info.properties["length"]) - 5.0) < 1e-6
+
 
 async def core_circle_radius():
     b = await _b()
@@ -43,11 +47,13 @@ async def core_circle_radius():
     info = await b.entity_get(c.handle)
     return abs(float(info.properties["radius"]) - 10.0) < 1e-6
 
+
 async def core_layer_create():
     b = await _b()
     await b.layer_create("BENCH", color=1)
     names = {lyr.name for lyr in await b.layer_list()}
     return "BENCH" in names
+
 
 async def core_polyline_closed():
     b = await _b()
@@ -55,11 +61,13 @@ async def core_polyline_closed():
     info = await b.entity_get(p.handle)
     return bool(info.properties.get("closed"))
 
+
 async def core_linear_dim():
     b = await _b()
     d = await b.dimension_linear(0, 0, 100, 0, 50, 20)
     info = await b.entity_get(d.handle)
     return "DIM" in info.type.upper()
+
 
 async def core_save_dxf_roundtrip():
     b = await _b()
@@ -67,16 +75,19 @@ async def core_save_dxf_roundtrip():
     path = os.path.join(tempfile.mkdtemp(), "rt.dxf")
     await b.drawing_save_as(path, "dxf")
     import ezdxf
+
     ezdxf.readfile(path)  # raises if not a valid DXF
     return os.path.getsize(path) > 0
 
 
 # ── Dimensions (I16) ──────────────────────────────────────────────────────────
 
+
 async def dim_aligned_no_error():
     b = await _b()
     d = await b.dimension_aligned(0, 0, 50, 50, 30, 70)
     return d is not None
+
 
 async def dim_angular_no_error():
     b = await _b()
@@ -85,6 +96,7 @@ async def dim_angular_no_error():
 
 
 # ── Polar array full circle (R9) ──────────────────────────────────────────────
+
 
 async def array_polar_360_distinct():
     b = await _b()
@@ -101,12 +113,14 @@ async def array_polar_360_distinct():
 
 # ── Deterministic geometry (I9) ────────────────────────────────────────────────
 
+
 async def point_intersection_line_line():
     b = await _b()
     l1 = await b.entity_create_line(0, 0, 10, 0)
     l2 = await b.entity_create_line(5, -5, 5, 5)
     pt = await b.point_intersection(l1.handle, l2.handle)
     return abs(pt[0] - 5.0) < 1e-6 and abs(pt[1] - 0.0) < 1e-6
+
 
 async def point_tangent_external():
     b = await _b()
@@ -120,11 +134,13 @@ async def point_tangent_external():
 
 # ── Selection / property parity (N3, N5) ───────────────────────────────────────
 
+
 async def arc_has_length():
     b = await _b()
     a = await b.entity_create_arc(0, 0, 10, 0, 90)
     info = await b.entity_get(a.handle)
     return abs(float(info.properties["length"]) - (10 * math.pi / 2)) < 1e-3
+
 
 async def arc_select_by_length():
     b = await _b()
@@ -132,12 +148,14 @@ async def arc_select_by_length():
     sel = await b.entity_select_smart({"type": "ARC", "length_range": [15, 16]})
     return len(sel) == 1
 
+
 async def ezdxf_bounding_box():
     b = await _b()
     ln = await b.entity_create_line(0, 0, 30, 40)
     info = await b.entity_get(ln.handle)
     bb = info.properties.get("bounding_box")
     return isinstance(bb, dict) and set(bb) == {"min", "max"}
+
 
 async def mtext_rotation_roundtrip():
     b = await _b()
@@ -148,6 +166,7 @@ async def mtext_rotation_roundtrip():
 
 # ── Rendering (screenshot Agg / SIGSEGV) ───────────────────────────────────────
 
+
 async def screenshot_png():
     b = await _b()
     await b.entity_create_line(0, 0, 100, 100)
@@ -157,6 +176,7 @@ async def screenshot_png():
 
 # ── Quality gate / critique (R4, N4) ───────────────────────────────────────────
 
+
 async def dim_overlap_critique_fires():
     b = await _b()
     await b.drawing_apply_iso_layers("mech")
@@ -165,12 +185,14 @@ async def dim_overlap_critique_fires():
     issues = await b.drawing_critique(focus=["dim_overlap"])
     return len(issues) >= 1
 
+
 async def iso13567_dim_layer():
     b = await _b()
     await b.drawing_apply_iso_layers("iso13567")
     ln = await b.entity_create_line(0, 0, 80, 0, layer="M-GEOMET-E-N")
     dims = await b.dimension_auto([ln.handle], style="chain")
     return dims[0].layer == "M-DIMEN-T-N"
+
 
 async def construction_left_iso_caught():
     b = await _b()
@@ -182,14 +204,17 @@ async def construction_left_iso_caught():
 
 # ── Engineering (gear) ──────────────────────────────────────────────────────────
 
+
 async def gear_no_self_overlap():
     from engineering.gear import generate_full_gear_outline
+
     pts = generate_full_gear_outline(2, 50, 20.0)  # z=50 -> root_r >= base_r
     root_r = (2 * 50 / 2.0) - 1.25 * 2
     return min(math.hypot(x, y) for x, y in pts) >= root_r - 1e-6
 
 
 # ── Linetype on demand (R24) ───────────────────────────────────────────────────
+
 
 async def center_linetype_applied():
     b = await _b()

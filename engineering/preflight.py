@@ -99,9 +99,7 @@ def preflight_drawing(
         assumptions.append({"field": "units", "value": "mm", "reason": "default"})
     if allow_assumptions and not req.get("tolerance_policy"):
         req["tolerance_policy"] = "general"
-        assumptions.append(
-            {"field": "tolerance_policy", "value": "general", "reason": "default"}
-        )
+        assumptions.append({"field": "tolerance_policy", "value": "general", "reason": "default"})
 
     if isinstance(req.get("units"), str):
         req["units"] = req["units"].lower()

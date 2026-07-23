@@ -32,6 +32,7 @@ class _FakeCtx:
 
 # ── NEW-screenshot-1 ────────────────────────────────────────────────────────
 
+
 async def test_screenshot_renders_png_without_gui_thread_crash(backend):
     """view_screenshot runs in a worker thread; the Agg figure must not crash and
     must return valid PNG bytes."""
@@ -42,6 +43,7 @@ async def test_screenshot_renders_png_without_gui_thread_crash(backend):
 
 
 # ── I15 — critique is part of the finalize gate ─────────────────────────────
+
 
 async def test_finalize_runs_critique_and_blocks_on_construction(backend, tmp_path):
     from fastmcp.exceptions import ToolError
@@ -68,6 +70,7 @@ async def test_finalize_runs_critique_and_blocks_on_construction(backend, tmp_pa
 
 # ── R4 — dim_overlap critique fires ─────────────────────────────────────────
 
+
 async def test_dim_overlap_critique_is_not_a_noop(backend):
     await backend.drawing_apply_iso_layers("mech")
     # Two dimensions measuring the same segment overlap exactly.
@@ -79,6 +82,7 @@ async def test_dim_overlap_critique_is_not_a_noop(backend):
 
 
 # ── N4 — dim / construction layers follow the active layer set ──────────────
+
 
 async def test_iso13567_dim_and_construction_layers_resolve(backend):
     await backend.drawing_apply_iso_layers("iso13567")
@@ -102,6 +106,7 @@ async def test_iso13567_dim_and_construction_layers_resolve(backend):
 
 # ── NEW-AUTH-1 — bind guard on the run_async launch path ────────────────────
 
+
 async def test_run_async_invokes_bind_guard_for_http(monkeypatch):
     import server
 
@@ -121,8 +126,7 @@ async def test_run_async_skips_guard_for_stdio(monkeypatch):
     import server
 
     seen = {}
-    monkeypatch.setattr(server, "_validate_http_bind",
-                        lambda h: seen.setdefault("host", h))
+    monkeypatch.setattr(server, "_validate_http_bind", lambda h: seen.setdefault("host", h))
 
     async def fake_orig(*args, **kwargs):
         return "stdio-ran"
@@ -135,6 +139,7 @@ async def test_run_async_skips_guard_for_stdio(monkeypatch):
 
 # ── NEW-gear-roottooth — outline never dips inside the root circle ──────────
 
+
 async def test_gear_outline_stays_outside_root_circle():
     from engineering.gear import generate_full_gear_outline
 
@@ -144,10 +149,13 @@ async def test_gear_outline_stays_outside_root_circle():
         pts = generate_full_gear_outline(module, teeth, pa)
         radii = [math.hypot(x, y) for x, y in pts]
         # No point may sit inside the root circle (the self-overlap bug for z>=~42).
-        assert min(radii) >= root_r - 1e-6, f"m={module} z={teeth}: min_r {min(radii)} < root_r {root_r}"
+        assert min(radii) >= root_r - 1e-6, (
+            f"m={module} z={teeth}: min_r {min(radii)} < root_r {root_r}"
+        )
 
 
 # ── NEW-section-dupbore / NEW-validator-keyway / NEW-gear-baseconstr ─────────
+
 
 async def test_gear_front_view_base_circle_persists_and_keyway_validates(backend, tmp_path):
     from engineering.gear import draw_helical_gear_front_view
@@ -155,8 +163,14 @@ async def test_gear_front_view_base_circle_persists_and_keyway_validates(backend
 
     await backend.drawing_apply_iso_layers("mech")
     res = await draw_helical_gear_front_view(
-        backend, module=2, teeth=20, helix_angle=0, center=(0, 0),
-        bore_diameter=20, keyway_width=6, keyway_depth=2.8,
+        backend,
+        module=2,
+        teeth=20,
+        helix_angle=0,
+        center=(0, 0),
+        bore_diameter=20,
+        keyway_width=6,
+        keyway_depth=2.8,
     )
     # NEW-gear-baseconstr: base circle is a persistent PHANTOM reference, not CONSTRUCTION.
     base = await backend.entity_get(res["base_circle"])
@@ -167,7 +181,8 @@ async def test_gear_front_view_base_circle_persists_and_keyway_validates(backend
     # NEW-validator-keyway: the open 4-point keyway polyline is now recognised.
     await backend.drawing_save_as(str(tmp_path / "gear.dxf"))
     vr = await DrawingValidator().run(
-        backend, expected={"must_have_bore": True, "must_have_keyway": True},
+        backend,
+        expected={"must_have_bore": True, "must_have_keyway": True},
     )
     assert "keyway_section_unverified" not in [f.code for f in vr.findings]
 
@@ -178,9 +193,15 @@ async def test_gear_section_does_not_duplicate_bore_lines(backend):
     await backend.drawing_apply_iso_layers("mech")
     await draw_gear_section_aa(
         backend,
-        gear_metadata={"outer_radius": 22, "center": [0, 0], "bore_diameter": 20,
-                       "keyway_width": 6, "keyway_depth": 2.8},
-        x_offset=100, face_width=30,
+        gear_metadata={
+            "outer_radius": 22,
+            "center": [0, 0],
+            "bore_diameter": 20,
+            "keyway_width": 6,
+            "keyway_depth": 2.8,
+        },
+        x_offset=100,
+        face_width=30,
     )
     dups = await backend.drawing_critique(focus=["duplicate_entities"])
     assert dups == []

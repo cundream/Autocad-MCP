@@ -51,8 +51,12 @@ async def test_batch_modify_delete(backend):
 async def test_template_architectural_layers(backend):
     """Architectural template should create standard layers."""
     layer_defs = [
-        ("WALLS", 7), ("DOORS", 3), ("WINDOWS", 4),
-        ("FURNITURE", 8), ("DIMENSIONS", 2), ("TEXT", 7),
+        ("WALLS", 7),
+        ("DOORS", 3),
+        ("WINDOWS", 4),
+        ("FURNITURE", 8),
+        ("DIMENSIONS", 2),
+        ("TEXT", 7),
     ]
     for name, color in layer_defs:
         await backend.layer_create(name, color=color)
@@ -67,8 +71,11 @@ async def test_template_architectural_layers(backend):
 async def test_template_mechanical_layers(backend):
     """Mechanical template layers."""
     layer_defs = [
-        ("VISIBLE", 7), ("HIDDEN", 1), ("CENTER", 3),
-        ("DIMENSIONS", 2), ("SECTION", 5),
+        ("VISIBLE", 7),
+        ("HIDDEN", 1),
+        ("CENTER", 3),
+        ("DIMENSIONS", 2),
+        ("SECTION", 5),
     ]
     for name, color in layer_defs:
         await backend.layer_create(name, color=color)

@@ -29,8 +29,13 @@ _EXPECTED_LAYER_COLOR: dict[str, int] = {
 
 # Dimension entity types that should sit on the DIM layer.
 _DIM_TYPES = {
-    "DIMENSION", "DIMLINEAR", "DIMALIGNED", "DIMANGULAR",
-    "DIMRADIUS", "DIMDIAMETER", "DIMORDINATE",
+    "DIMENSION",
+    "DIMLINEAR",
+    "DIMALIGNED",
+    "DIMANGULAR",
+    "DIMRADIUS",
+    "DIMDIAMETER",
+    "DIMORDINATE",
 }
 
 
@@ -57,15 +62,17 @@ async def _check_iso128(backend: AutoCADBackend) -> list[Issue]:
         # (e.g. 25 == 0.25mm) — they are NOT pre-normalised to mm, so accept
         # either the raw mm value or hundredths/100.
         if lw not in allowed and (lw / 100.0) not in allowed:
-            issues.append(Issue(
-                severity="warning",
-                focus="iso128",
-                message=(
-                    f"Layer '{lyr.name}' lineweight {lw} mm is not in the "
-                    f"ISO 128 set {sorted(allowed)}."
-                ),
-                detail={"layer": lyr.name, "lineweight": lw},
-            ))
+            issues.append(
+                Issue(
+                    severity="warning",
+                    focus="iso128",
+                    message=(
+                        f"Layer '{lyr.name}' lineweight {lw} mm is not in the "
+                        f"ISO 128 set {sorted(allowed)}."
+                    ),
+                    detail={"layer": lyr.name, "lineweight": lw},
+                )
+            )
     return issues
 
 
@@ -79,17 +86,19 @@ async def _check_layer_color(backend: AutoCADBackend) -> list[Issue]:
     for lyr in layers:
         expected = _EXPECTED_LAYER_COLOR.get(lyr.name)
         if expected is None:
-            continue   # unknown layer — caller's responsibility
+            continue  # unknown layer — caller's responsibility
         if int(lyr.color) != int(expected):
-            issues.append(Issue(
-                severity="warning",
-                focus="layer_color",
-                message=(
-                    f"Layer '{lyr.name}' has color {lyr.color}; "
-                    f"engineering standard expects {expected}."
-                ),
-                detail={"layer": lyr.name, "got": int(lyr.color), "expected": expected},
-            ))
+            issues.append(
+                Issue(
+                    severity="warning",
+                    focus="layer_color",
+                    message=(
+                        f"Layer '{lyr.name}' has color {lyr.color}; "
+                        f"engineering standard expects {expected}."
+                    ),
+                    detail={"layer": lyr.name, "got": int(lyr.color), "expected": expected},
+                )
+            )
     return issues
 
 
@@ -107,17 +116,21 @@ async def _check_construction_left(backend: AutoCADBackend) -> list[Issue]:
     leftover = [e for e in ents if "CONST" in (e.layer or "").upper()]
     if not leftover:
         return []
-    return [Issue(
-        severity="error",
-        focus="construction_left",
-        message=(
-            f"{len(leftover)} entity/entities still on a construction layer. "
-            "Call construction_clear() before drawing_finalize."
-        ),
-        handles=[e.handle for e in leftover[:50]],
-        detail={"count": len(leftover),
-                "layers": sorted({e.layer for e in leftover if e.layer})},
-    )]
+    return [
+        Issue(
+            severity="error",
+            focus="construction_left",
+            message=(
+                f"{len(leftover)} entity/entities still on a construction layer. "
+                "Call construction_clear() before drawing_finalize."
+            ),
+            handles=[e.handle for e in leftover[:50]],
+            detail={
+                "count": len(leftover),
+                "layers": sorted({e.layer for e in leftover if e.layer}),
+            },
+        )
+    ]
 
 
 async def _check_untrimmed_corner(backend: AutoCADBackend) -> list[Issue]:
@@ -150,16 +163,18 @@ async def _check_untrimmed_corner(backend: AutoCADBackend) -> list[Issue]:
                 if key in seen:
                     continue
                 seen.add(key)
-                issues.append(Issue(
-                    severity="warning",
-                    focus="untrimmed_corner",
-                    message=(
-                        f"Lines {h1} and {h2} have endpoints {d:.3f} mm apart — "
-                        "likely an untrimmed corner (use entity_trim or entity_fillet)."
-                    ),
-                    handles=[h1, h2],
-                    detail={"gap_mm": d, "p1": list(p1), "p2": list(p2)},
-                ))
+                issues.append(
+                    Issue(
+                        severity="warning",
+                        focus="untrimmed_corner",
+                        message=(
+                            f"Lines {h1} and {h2} have endpoints {d:.3f} mm apart — "
+                            "likely an untrimmed corner (use entity_trim or entity_fillet)."
+                        ),
+                        handles=[h1, h2],
+                        detail={"gap_mm": d, "p1": list(p1), "p2": list(p2)},
+                    )
+                )
     return issues
 
 
@@ -180,12 +195,14 @@ async def _check_duplicate_entities(backend: AutoCADBackend) -> list[Issue]:
         k2 = (k1[2], k1[3], k1[0], k1[1])
         for key in (k1, k2):
             if key in seen:
-                issues.append(Issue(
-                    severity="warning",
-                    focus="duplicate_entities",
-                    message=f"Lines {seen[key]} and {ln.handle} are duplicates.",
-                    handles=[seen[key], ln.handle],
-                ))
+                issues.append(
+                    Issue(
+                        severity="warning",
+                        focus="duplicate_entities",
+                        message=f"Lines {seen[key]} and {ln.handle} are duplicates.",
+                        handles=[seen[key], ln.handle],
+                    )
+                )
                 break
         else:
             seen[k1] = ln.handle
@@ -243,12 +260,14 @@ async def _check_dim_overlap(backend: AutoCADBackend) -> list[Issue]:
                 if key in seen:
                     continue
                 seen.add(key)
-                issues.append(Issue(
-                    severity="warning",
-                    focus="dim_overlap",
-                    message=f"Dimensions {h1} and {h2} are {d:.2f} mm apart — likely overlapping.",
-                    handles=[h1, h2],
-                ))
+                issues.append(
+                    Issue(
+                        severity="warning",
+                        focus="dim_overlap",
+                        message=f"Dimensions {h1} and {h2} are {d:.2f} mm apart — likely overlapping.",
+                        handles=[h1, h2],
+                    )
+                )
     return issues
 
 
@@ -267,19 +286,21 @@ async def _check_gdt(backend: AutoCADBackend) -> list[Issue]:
     missing = sorted(referenced - defined)
     if not missing:
         return []
-    return [Issue(
-        severity="error",
-        focus="gdt",
-        message=(
-            f"Feature control frame(s) reference datum(s) {missing} with no "
-            "matching datum feature. Add draw_datum_feature for each datum."
-        ),
-        detail={
-            "missing_datums": missing,
-            "defined": sorted(defined),
-            "referenced": sorted(referenced),
-        },
-    )]
+    return [
+        Issue(
+            severity="error",
+            focus="gdt",
+            message=(
+                f"Feature control frame(s) reference datum(s) {missing} with no "
+                "matching datum feature. Add draw_datum_feature for each datum."
+            ),
+            detail={
+                "missing_datums": missing,
+                "defined": sorted(defined),
+                "referenced": sorted(referenced),
+            },
+        )
+    ]
 
 
 _FOCUS_DISPATCH = {
@@ -303,11 +324,13 @@ async def run_critique(
     for f in foci:
         check = _FOCUS_DISPATCH.get(f)
         if check is None:
-            issues.append(Issue(
-                severity="warning",
-                focus=f,  # type: ignore[arg-type]
-                message=f"Unknown critique focus '{f}' (closed enum).",
-            ))
+            issues.append(
+                Issue(
+                    severity="warning",
+                    focus=f,  # type: ignore[arg-type]
+                    message=f"Unknown critique focus '{f}' (closed enum).",
+                )
+            )
             continue
         issues.extend(await check(backend))
     return issues

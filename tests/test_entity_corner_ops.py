@@ -15,6 +15,7 @@ def _close(a, b, tol=1e-6):
 
 # ─── TRIM ──────────────────────────────────────────────────────────────────
 
+
 class TestTrim:
     async def test_trim_keep_left(self, backend):
         target = await backend.entity_create_line(0, 0, 100, 0)
@@ -55,6 +56,7 @@ class TestTrim:
 
 # ─── EXTEND ────────────────────────────────────────────────────────────────
 
+
 class TestExtend:
     async def test_extend_auto_endpoint(self, backend):
         # Target ends at x=40; boundary is vertical at x=80.
@@ -83,6 +85,7 @@ class TestExtend:
 
 
 # ─── FILLET ────────────────────────────────────────────────────────────────
+
 
 class TestFillet:
     async def test_fillet_90_degree_corner(self, backend):
@@ -138,6 +141,7 @@ class TestFillet:
 
 
 # ─── CHAMFER ───────────────────────────────────────────────────────────────
+
 
 class TestChamfer:
     async def test_chamfer_symmetric(self, backend):

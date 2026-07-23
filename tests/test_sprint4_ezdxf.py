@@ -21,6 +21,7 @@ pytestmark = pytest.mark.asyncio
 
 # ── R24 — CENTER/HIDDEN linetype actually loaded + applied ──────────────────
 
+
 async def test_create_line_loads_center_linetype(backend):
     # Fresh doc: CENTER is not loaded yet.
     assert "CENTER" not in backend._doc.linetypes
@@ -53,6 +54,7 @@ async def test_create_line_continuous_does_not_error(backend):
 
 # ── S3 — block description surfaced from the definition ─────────────────────
 
+
 async def test_block_list_surfaces_description(backend):
     # Create a block from an entity, then stamp a description on its definition.
     seg = await backend.entity_create_line(0, 0, 10, 0)
@@ -76,6 +78,7 @@ async def test_block_list_description_defaults_empty(backend):
 
 # ── R26 / N9 — honest zoom payload shape ────────────────────────────────────
 
+
 async def test_zoom_extents_reports_not_applied(backend):
     res = await backend.view_zoom_extents()
     assert res["ok"] is True
@@ -91,6 +94,7 @@ async def test_zoom_window_reports_not_applied(backend):
 
 
 # ── NEW-undo-1 — undo/transaction stack behaviour under lock ────────────────
+
 
 async def test_undo_empty_stack_returns_error(backend):
     res = await backend.drawing_undo()

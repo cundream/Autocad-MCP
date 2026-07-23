@@ -106,32 +106,50 @@ def validate_path(path: str, *, allow_write: bool = False) -> Path:
 # ---------------------------------------------------------------------------
 
 _DANGEROUS_COMMANDS = [
-    "ERASE", "_ERASE",
-    "DELETE", "_DELETE",
-    "PURGE", "_PURGE",
-    "QUIT", "_QUIT",
-    "CLOSE", "_CLOSE",
-    "QSAVE", "_QSAVE",
-    "SAVEAS", "_SAVEAS",
-    "NEW", "_NEW",
-    "OPEN", "_OPEN",
-    "RECOVER", "_RECOVER",
-    "WBLOCK", "_WBLOCK",
-    "INSERT", "_INSERT",
-    "XREF", "_XREF",
-    "SHELL", "_SHELL",
-    "SCRIPT", "_SCRIPT",
-    "APPLOAD", "_APPLOAD",
-    "NETLOAD", "_NETLOAD",
-    "VBARUN", "_VBARUN",
-    "VBALOAD", "_VBALOAD",
-    "SECURITYOPTIONS", "_SECURITYOPTIONS",
+    "ERASE",
+    "_ERASE",
+    "DELETE",
+    "_DELETE",
+    "PURGE",
+    "_PURGE",
+    "QUIT",
+    "_QUIT",
+    "CLOSE",
+    "_CLOSE",
+    "QSAVE",
+    "_QSAVE",
+    "SAVEAS",
+    "_SAVEAS",
+    "NEW",
+    "_NEW",
+    "OPEN",
+    "_OPEN",
+    "RECOVER",
+    "_RECOVER",
+    "WBLOCK",
+    "_WBLOCK",
+    "INSERT",
+    "_INSERT",
+    "XREF",
+    "_XREF",
+    "SHELL",
+    "_SHELL",
+    "SCRIPT",
+    "_SCRIPT",
+    "APPLOAD",
+    "_APPLOAD",
+    "NETLOAD",
+    "_NETLOAD",
+    "VBARUN",
+    "_VBARUN",
+    "VBALOAD",
+    "_VBALOAD",
+    "SECURITYOPTIONS",
+    "_SECURITYOPTIONS",
 ]
 
 _DANGEROUS_COMMAND_PATTERNS = re.compile(
-    r"\b("
-    + "|".join(re.escape(cmd) for cmd in _DANGEROUS_COMMANDS)
-    + r")\b",
+    r"\b(" + "|".join(re.escape(cmd) for cmd in _DANGEROUS_COMMANDS) + r")\b",
     re.IGNORECASE,
 )
 
@@ -213,7 +231,9 @@ def sanitize_lisp(expression: str) -> str:
         raise ToolError("LISP expression cannot be empty.")
 
     if config.settings.dangerous_commands_enabled:
-        log.info("Dangerous commands enabled — bypassing LISP sanitization for: %s", expression[:80])
+        log.info(
+            "Dangerous commands enabled — bypassing LISP sanitization for: %s", expression[:80]
+        )
         return expression
 
     if _DANGEROUS_LISP_PATTERN.search(expression):

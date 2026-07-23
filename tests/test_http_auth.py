@@ -46,15 +46,18 @@ def _reload_server_with_token(token: str | None):
 # Auth object construction
 # ---------------------------------------------------------------------------
 
+
 def test_auth_object_built_when_token_set():
     """_auth is a StaticTokenVerifier when MCP_AUTH_TOKEN is non-empty."""
     with patch.dict("os.environ", {"MCP_AUTH_TOKEN": "secret-test-token-123"}):
         import config as cfg
+
         old_token = cfg.settings.mcp_auth_token
         cfg.settings.mcp_auth_token = "secret-test-token-123"
         try:
             sys.modules.pop("server", None)
             import server as srv
+
             assert srv._auth is not None
             assert isinstance(srv._auth, StaticTokenVerifier)
         finally:
@@ -65,11 +68,13 @@ def test_auth_object_built_when_token_set():
 def test_auth_object_none_when_no_token():
     """_auth is None when MCP_AUTH_TOKEN is empty (anonymous loopback mode)."""
     import config as cfg
+
     old_token = cfg.settings.mcp_auth_token
     cfg.settings.mcp_auth_token = ""
     try:
         sys.modules.pop("server", None)
         import server as srv
+
         assert srv._auth is None
     finally:
         cfg.settings.mcp_auth_token = old_token
@@ -79,11 +84,13 @@ def test_auth_object_none_when_no_token():
 def test_mcp_receives_auth_when_set():
     """The FastMCP instance's auth attribute matches the _auth object."""
     import config as cfg
+
     old_token = cfg.settings.mcp_auth_token
     cfg.settings.mcp_auth_token = "another-secret"
     try:
         sys.modules.pop("server", None)
         import server as srv
+
         # FastMCP stores auth as _auth_provider or similar; we check it via
         # the _auth module-level variable matching what was passed in.
         assert srv._auth is not None
@@ -97,11 +104,13 @@ def test_mcp_receives_auth_when_set():
 # _validate_http_bind guard
 # ---------------------------------------------------------------------------
 
+
 def test_validate_http_bind_loopback_no_error():
     """Loopback hosts pass validation regardless of token/allow_remote flags."""
     sys.modules.pop("server", None)
     import config as cfg
     import server as srv
+
     old_remote = cfg.settings.allow_remote_http
     old_token = cfg.settings.mcp_auth_token
     cfg.settings.allow_remote_http = False
@@ -121,6 +130,7 @@ def test_validate_http_bind_remote_without_flag_raises():
     sys.modules.pop("server", None)
     import config as cfg
     import server as srv
+
     old = cfg.settings.allow_remote_http
     cfg.settings.allow_remote_http = False
     try:
@@ -135,6 +145,7 @@ def test_validate_http_bind_remote_without_token_raises():
     sys.modules.pop("server", None)
     import config as cfg
     import server as srv
+
     old_remote = cfg.settings.allow_remote_http
     old_token = cfg.settings.mcp_auth_token
     cfg.settings.allow_remote_http = True
@@ -150,9 +161,11 @@ def test_validate_http_bind_remote_without_token_raises():
 def test_validate_http_bind_remote_with_token_logs_warning(caplog):
     """Remote bind with both flag and token logs a warning but does not raise."""
     import logging
+
     sys.modules.pop("server", None)
     import config as cfg
     import server as srv
+
     old_remote = cfg.settings.allow_remote_http
     old_token = cfg.settings.mcp_auth_token
     cfg.settings.allow_remote_http = True
@@ -160,7 +173,9 @@ def test_validate_http_bind_remote_with_token_logs_warning(caplog):
     try:
         with caplog.at_level(logging.WARNING, logger="server"):
             srv._validate_http_bind("0.0.0.0")  # should not raise
-        assert any("non-loopback" in r.message.lower() or "0.0.0.0" in r.message for r in caplog.records)
+        assert any(
+            "non-loopback" in r.message.lower() or "0.0.0.0" in r.message for r in caplog.records
+        )
     finally:
         cfg.settings.allow_remote_http = old_remote
         cfg.settings.mcp_auth_token = old_token

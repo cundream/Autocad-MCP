@@ -66,19 +66,41 @@ async def test_helical_gear_front_view_returns_metadata(backend):
     await ensure_standard_linetypes(backend)
     await ensure_engineering_layers(backend)
     res = await draw_helical_gear_front_view(
-        backend, module=3, teeth=24, helix_angle=20.0, hand="RH",
+        backend,
+        module=3,
+        teeth=24,
+        helix_angle=20.0,
+        hand="RH",
         center=(0.0, 0.0),
     )
     expected_keys = {
-        "outline", "pitch_circle", "base_circle", "outer_circle", "root_circle",
-        "helix_symbol", "helix_label", "bore", "keyway", "metadata",
+        "outline",
+        "pitch_circle",
+        "base_circle",
+        "outer_circle",
+        "root_circle",
+        "helix_symbol",
+        "helix_label",
+        "bore",
+        "keyway",
+        "metadata",
     }
     assert expected_keys.issubset(res.keys())
     md = res["metadata"]
     for k in (
-        "module", "teeth", "pressure_angle", "helix_angle", "hand", "center",
-        "bore_diameter", "keyway_width", "keyway_depth",
-        "pitch_radius", "outer_radius", "base_radius", "root_radius",
+        "module",
+        "teeth",
+        "pressure_angle",
+        "helix_angle",
+        "hand",
+        "center",
+        "bore_diameter",
+        "keyway_width",
+        "keyway_depth",
+        "pitch_radius",
+        "outer_radius",
+        "base_radius",
+        "root_radius",
     ):
         assert k in md, f"metadata missing key {k!r}"
 
@@ -88,8 +110,13 @@ async def test_helical_gear_with_bore_and_keyway_handles_present(backend):
     await ensure_standard_linetypes(backend)
     await ensure_engineering_layers(backend)
     res = await draw_helical_gear_front_view(
-        backend, module=3, teeth=24, helix_angle=20.0,
-        bore_diameter=25.0, keyway_width=8.0, keyway_depth=4.0,
+        backend,
+        module=3,
+        teeth=24,
+        helix_angle=20.0,
+        bore_diameter=25.0,
+        keyway_width=8.0,
+        keyway_depth=4.0,
     )
     assert res["bore"] is not None
     assert res["keyway"] is not None
@@ -102,7 +129,11 @@ async def test_helical_gear_metadata_radii_correct(backend):
     await ensure_standard_linetypes(backend)
     await ensure_engineering_layers(backend)
     res = await draw_helical_gear_front_view(
-        backend, module=3, teeth=24, helix_angle=20.0, pressure_angle=20.0,
+        backend,
+        module=3,
+        teeth=24,
+        helix_angle=20.0,
+        pressure_angle=20.0,
     )
     md = res["metadata"]
     assert math.isclose(md["pitch_radius"], 36.0, abs_tol=1e-6)
@@ -116,12 +147,19 @@ async def test_section_aa_does_not_draw_helix_lines(backend):
     await ensure_standard_linetypes(backend)
     await ensure_engineering_layers(backend)
     front = await draw_helical_gear_front_view(
-        backend, module=3, teeth=24, helix_angle=20.0,
-        bore_diameter=25.0, keyway_width=8.0, keyway_depth=4.0,
+        backend,
+        module=3,
+        teeth=24,
+        helix_angle=20.0,
+        bore_diameter=25.0,
+        keyway_width=8.0,
+        keyway_depth=4.0,
     )
     section = await draw_gear_section_aa(
-        backend, gear_metadata=front["metadata"],
-        x_offset=200.0, face_width=40.0,
+        backend,
+        gear_metadata=front["metadata"],
+        x_offset=200.0,
+        face_width=40.0,
     )
     assert "helix" not in section
     assert "helix_symbol" not in section

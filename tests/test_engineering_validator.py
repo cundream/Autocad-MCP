@@ -73,7 +73,11 @@ async def test_validator_catches_helical_spur_title(backend, tmp_path):
     await ensure_standard_linetypes(backend)
     await ensure_engineering_layers(backend)
     await backend.entity_create_text(
-        text="HELICAL SPUR GEAR", x=0, y=0, height=5, layer="TEXT",
+        text="HELICAL SPUR GEAR",
+        x=0,
+        y=0,
+        height=5,
+        layer="TEXT",
     )
     await backend.drawing_save_as(str(tmp_path / "tb.dxf"))
     result = await DrawingValidator().run(backend, expected={"helix_angle": 20})
@@ -86,7 +90,11 @@ async def test_validator_catches_fake_dimension_text(backend, tmp_path):
     await ensure_standard_linetypes(backend)
     await ensure_engineering_layers(backend)
     await backend.entity_create_text(
-        text="Ø78", x=10, y=10, height=3.5, layer="DIM",
+        text="Ø78",
+        x=10,
+        y=10,
+        height=3.5,
+        layer="DIM",
     )
     await backend.drawing_save_as(str(tmp_path / "fake.dxf"))
     result = await DrawingValidator().run(backend)
@@ -124,7 +132,8 @@ async def test_validator_bore_missing_when_expected(backend, tmp_path):
     # No circle drawn at all
     await backend.drawing_save_as(str(tmp_path / "nobore.dxf"))
     result = await DrawingValidator().run(
-        backend, expected={"must_have_bore": True},
+        backend,
+        expected={"must_have_bore": True},
     )
     assert "bore_missing" in _codes(result)
 

@@ -90,10 +90,11 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
         table = await self.backend.entity_create_table(
             0, 20, [["A", "1"]], headers=["ITEM", "QTY"], layer="TEXT"
         )
-        leader = await self.backend.leader_create_mleader(
-            [[0, 0], [10, 10]], "NOTE", layer="DIM"
-        )
-        representations = [table.properties.get("representation"), leader.properties.get("representation")]
+        leader = await self.backend.leader_create_mleader([[0, 0], [10, 10]], "NOTE", layer="DIM")
+        representations = [
+            table.properties.get("representation"),
+            leader.properties.get("representation"),
+        ]
         return all(representations), {"representations": representations}, []
 
     async def _task_transactions(self):

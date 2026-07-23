@@ -100,7 +100,8 @@ def test_preflight_does_not_invent_values_when_assumptions_disabled():
 @pytest.mark.asyncio
 async def test_backend_plan_accepts_matching_ready_preflight(backend):
     preflight = await backend.drawing_preflight(
-        "L bracket", requirements=_complete_requirements(),
+        "L bracket",
+        requirements=_complete_requirements(),
     )
 
     plan = await backend.drawing_plan(
@@ -125,7 +126,8 @@ async def test_backend_plan_rejects_not_ready_preflight_hash(backend):
 @pytest.mark.asyncio
 async def test_backend_plan_rejects_fields_that_do_not_match_preflight_hash(backend):
     preflight = await backend.drawing_preflight(
-        "L bracket", requirements=_complete_requirements(),
+        "L bracket",
+        requirements=_complete_requirements(),
     )
 
     with pytest.raises(RuntimeError, match="do not match"):
@@ -148,7 +150,8 @@ async def test_legacy_plan_remains_compatible_and_marks_preflight_skipped(backen
 @pytest.mark.asyncio
 async def test_document_change_clears_plan_preflight_and_gdt_state(backend):
     preflight = await backend.drawing_preflight(
-        "First drawing", requirements=_complete_requirements(),
+        "First drawing",
+        requirements=_complete_requirements(),
     )
     await backend.drawing_plan(
         "First drawing",

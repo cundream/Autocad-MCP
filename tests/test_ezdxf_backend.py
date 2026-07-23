@@ -1,6 +1,5 @@
 """Tests for ezdxf backend — no AutoCAD required."""
 
-
 import pytest
 
 pytestmark = pytest.mark.asyncio

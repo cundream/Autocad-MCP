@@ -35,6 +35,7 @@ class _Ctx:
 
 # ── R20 — tool count comes from the public accessor and is a real number ─────
 
+
 async def test_registered_tool_count_is_positive_never_minus_one():
     import server
 
@@ -58,6 +59,7 @@ async def test_registered_tools_returns_objects_with_name_and_tags():
 
 
 # ── R15 — system_about tool_groups is dynamic + correct ──────────────────────
+
 
 async def test_system_about_includes_engineering_group(backend):
     import server
@@ -122,6 +124,7 @@ async def test_drawing_close_appears_in_groups(backend):
 
 # ── R20 — system_status reports a real tool_count, never -1 ──────────────────
 
+
 async def test_system_status_reports_real_tool_count(backend):
     import server
 
@@ -133,6 +136,7 @@ async def test_system_status_reports_real_tool_count(backend):
 
 
 # ── N8 — drawing_plan docstring corrected ────────────────────────────────────
+
 
 async def test_drawing_plan_docstring_not_misleading():
     import server

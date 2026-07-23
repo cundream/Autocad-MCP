@@ -61,10 +61,12 @@ async def _run() -> int:
     print(f"ok (center=({cx},{cy}), r=5)")
 
     print("[6/9] entity_select_smart ...", end=" ")
-    geom = await backend.entity_select_smart({
-        "type": "LINE",
-        "layer": "GEOMETRY",
-    })
+    geom = await backend.entity_select_smart(
+        {
+            "type": "LINE",
+            "layer": "GEOMETRY",
+        }
+    )
     assert len(geom) >= 2, len(geom)
     print(f"ok ({len(geom)} lines selected)")
 

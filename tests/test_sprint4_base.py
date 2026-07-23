@@ -25,6 +25,7 @@ pytestmark = pytest.mark.asyncio
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _on_arc(pt, cx, cy, r, sa_deg, ea_deg, tol=1e-6):
     """True if pt lies on the circle of radius r AND within the [sa, ea] sweep
     (degrees, CCW, with wraparound)."""
@@ -41,10 +42,12 @@ def _on_arc(pt, cx, cy, r, sa_deg, ea_deg, tol=1e-6):
 # N7 — ARC snap angle-missing raises RuntimeError, not KeyError
 # ---------------------------------------------------------------------------
 
+
 class TestN7ArcAngleMissing:
     async def _patch_entity_get(self, backend, info: EntityInfo):
         async def _fake(handle):
             return info
+
         backend.entity_get = _fake  # type: ignore[method-assign]
 
     async def test_end_snap_missing_angles_raises_runtimeerror(self, backend):
@@ -107,6 +110,7 @@ class TestN7ArcAngleMissing:
 # NEW-base-1 — point_tangent on/near the perimeter must not raise ValueError
 # ---------------------------------------------------------------------------
 
+
 class TestNewBase1TangentClamp:
     async def test_from_point_exactly_on_circle_no_valueerror(self, backend):
         """A from-point exactly on the perimeter (d == r) degenerates to the
@@ -144,6 +148,7 @@ class TestNewBase1TangentClamp:
 # ---------------------------------------------------------------------------
 # NEW-snap-quad-arc / NEW-snap-near-arc — snaps stay on the arc sweep
 # ---------------------------------------------------------------------------
+
 
 class TestNewSnapArcSweep:
     async def test_quad_on_quarter_arc_stays_on_sweep(self, backend):
@@ -207,6 +212,7 @@ class TestNewSnapArcSweep:
 # ---------------------------------------------------------------------------
 # N8 — get_plan_spec accessor exposes the stored PlanSpec
 # ---------------------------------------------------------------------------
+
 
 class TestN8GetPlanSpec:
     async def test_none_before_plan(self, backend):

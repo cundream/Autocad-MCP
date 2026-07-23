@@ -1,10 +1,10 @@
 """Regression tests for the CI-verifiable (ezdxf / shared) Sprint-3 fixes.
 
-  * N2  — drawing_save_as derives the on-disk format from the path extension
-  * N3  — ARC carries a `length` property; entity_select_smart length_range selects it
-  * N5  — properties parity: ezdxf sets bounding_box; MTEXT carries char_height + rotation
-  * NEW-dimauto-baseline-rotation — baseline dims run parallel to a rotated baseline
-  * NEW-dimauto-ordinate-misnomer — ordinate dims are staggered, not stacked at one offset
+* N2  — drawing_save_as derives the on-disk format from the path extension
+* N3  — ARC carries a `length` property; entity_select_smart length_range selects it
+* N5  — properties parity: ezdxf sets bounding_box; MTEXT carries char_height + rotation
+* NEW-dimauto-baseline-rotation — baseline dims run parallel to a rotated baseline
+* NEW-dimauto-ordinate-misnomer — ordinate dims are staggered, not stacked at one offset
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ class _Ctx:
 
 # ── N2 — format follows the file extension ──────────────────────────────────
 
+
 async def test_save_as_derives_format_from_extension(backend):
     import server
 
@@ -42,6 +43,7 @@ async def test_save_as_derives_format_from_extension(backend):
 
 # ── N3 — ARC length + length_range selection ────────────────────────────────
 
+
 async def test_arc_has_length_and_is_selectable(backend):
     arc = await backend.entity_create_arc(0, 0, 10, 0, 90)  # r=10, 90deg -> len ~15.708
     info = await backend.entity_get(arc.handle)
@@ -54,6 +56,7 @@ async def test_arc_has_length_and_is_selectable(backend):
 
 
 # ── N5 — cross-backend property parity ──────────────────────────────────────
+
 
 async def test_ezdxf_populates_bounding_box(backend):
     line = await backend.entity_create_line(0, 0, 30, 40)
@@ -78,6 +81,7 @@ async def test_mtext_honors_caller_rotation(backend):
 
 # ── NEW-dimauto-baseline-rotation ───────────────────────────────────────────
 
+
 async def test_baseline_dim_runs_parallel_to_rotated_baseline(backend):
     ln = await backend.entity_create_line(0, 0, 40, 40)  # 45-degree baseline
     dims = await backend.dimension_auto([ln.handle], style="baseline")
@@ -89,6 +93,7 @@ async def test_baseline_dim_runs_parallel_to_rotated_baseline(backend):
 
 
 # ── NEW-dimauto-ordinate-misnomer ───────────────────────────────────────────
+
 
 async def test_ordinate_dims_are_staggered_not_overlapping(backend):
     l1 = await backend.entity_create_line(0, 0, 20, 10)

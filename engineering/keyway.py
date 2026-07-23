@@ -45,7 +45,9 @@ def keyway_dimensions(bore_diameter: float) -> dict:
             f"({DIN6885_TABLE[-1][1]} mm)."
         )
     for b_min, b_max, width, height, t1 in DIN6885_TABLE:
-        if b_min < bore_diameter <= b_max or (bore_diameter == b_min and b_min == DIN6885_TABLE[0][0]):
+        if b_min < bore_diameter <= b_max or (
+            bore_diameter == b_min and b_min == DIN6885_TABLE[0][0]
+        ):
             return {
                 "width": float(width),
                 "height": float(height),
@@ -95,10 +97,18 @@ async def draw_keyed_bore(
 
     overshoot = max(r * 0.2, 5.0)
     horiz = await backend.entity_create_line(
-        cx - r - overshoot, cy, cx + r + overshoot, cy, layer=center_layer,
+        cx - r - overshoot,
+        cy,
+        cx + r + overshoot,
+        cy,
+        layer=center_layer,
     )
     vert = await backend.entity_create_line(
-        cx, cy - r - overshoot, cx, cy + r + depth + overshoot, layer=center_layer,
+        cx,
+        cy - r - overshoot,
+        cx,
+        cy + r + depth + overshoot,
+        layer=center_layer,
     )
 
     return {
@@ -142,23 +152,47 @@ async def draw_keyway_section(
     notch_right = cx + half_kw
 
     bore_top = await backend.entity_create_line(
-        x_left, top_y, x_right, top_y, layer=layer,
+        x_left,
+        top_y,
+        x_right,
+        top_y,
+        layer=layer,
     )
     bore_bottom = await backend.entity_create_line(
-        x_left, bot_y, x_right, bot_y, layer=layer,
+        x_left,
+        bot_y,
+        x_right,
+        bot_y,
+        layer=layer,
     )
 
     notch_bottom = await backend.entity_create_line(
-        notch_left, top_y, notch_right, top_y, layer=layer,
+        notch_left,
+        top_y,
+        notch_right,
+        top_y,
+        layer=layer,
     )
     notch_left_wall = await backend.entity_create_line(
-        notch_left, top_y, notch_left, notch_top_y, layer=layer,
+        notch_left,
+        top_y,
+        notch_left,
+        notch_top_y,
+        layer=layer,
     )
     notch_top = await backend.entity_create_line(
-        notch_left, notch_top_y, notch_right, notch_top_y, layer=layer,
+        notch_left,
+        notch_top_y,
+        notch_right,
+        notch_top_y,
+        layer=layer,
     )
     notch_right_wall = await backend.entity_create_line(
-        notch_right, notch_top_y, notch_right, top_y, layer=layer,
+        notch_right,
+        notch_top_y,
+        notch_right,
+        top_y,
+        layer=layer,
     )
 
     return {

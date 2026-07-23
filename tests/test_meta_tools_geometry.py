@@ -13,6 +13,7 @@ pytestmark = pytest.mark.asyncio
 # point_intersection
 # ---------------------------------------------------------------------------
 
+
 class TestPointIntersection:
     async def test_line_line_perpendicular(self, backend):
         """Horizontal and vertical lines cross at (50, 50)."""
@@ -90,6 +91,7 @@ class TestPointIntersection:
 # ---------------------------------------------------------------------------
 # point_tangent
 # ---------------------------------------------------------------------------
+
 
 class TestPointTangent:
     async def test_tangent_from_outside(self, backend):

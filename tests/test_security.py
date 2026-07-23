@@ -73,6 +73,7 @@ class TestValidatePath:
         monkeypatch.setenv("ALLOWED_PATHS", str(allowed_dir))
 
         import config
+
         config.settings = Settings()
 
         blocked = tmp_path / "blocked" / "file.dxf"
@@ -98,6 +99,7 @@ class TestValidatePath:
         monkeypatch.setenv("ALLOWED_PATHS", str(allowed_dir))
 
         import config
+
         config.settings = Settings()
 
         result = validate_path(str(test_file))
@@ -160,6 +162,7 @@ class TestSanitizeCommand:
         monkeypatch.setenv("DANGEROUS_COMMANDS_ENABLED", "true")
 
         import config
+
         config.settings = Settings()
 
         result = sanitize_command("ERASE ALL")
@@ -222,6 +225,7 @@ class TestSanitizeLisp:
         monkeypatch.setenv("DANGEROUS_COMMANDS_ENABLED", "true")
 
         import config
+
         config.settings = Settings()
 
         result = sanitize_lisp('(startapp "cmd")')

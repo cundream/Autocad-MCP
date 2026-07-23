@@ -53,6 +53,7 @@ class _Doc:
 
 # ── NEW-com-set-variable-coercion ───────────────────────────────────────────
 
+
 async def test_set_variable_coerces_string_to_sysvar_int_type(monkeypatch):
     app = MagicMock()
     app.GetVariable.return_value = 4159  # OSMODE current value is an int
@@ -68,6 +69,7 @@ async def test_set_variable_coerces_string_to_sysvar_int_type(monkeypatch):
 
 
 # ── R23 / N6 — run_lisp guard + value capture ───────────────────────────────
+
 
 async def test_run_lisp_refuses_when_cmdactive(monkeypatch):
     app = MagicMock()
@@ -90,11 +92,12 @@ async def test_run_lisp_captures_value_from_users1(monkeypatch):
     b = _backend_no_executor()
     out = await b.system_run_lisp("(+ 1 2)")
 
-    assert out["result"] == "3"               # captured, not the bogus "nil"
+    assert out["result"] == "3"  # captured, not the bogus "nil"
     assert any("USERS1" in c for c in doc.sent)  # value stashed out-of-band
 
 
 # ── R16 — transaction flag cleared even on error ────────────────────────────
+
 
 async def test_transaction_begin_sets_flag_and_marks_undo(monkeypatch):
     doc = _Doc()
@@ -136,10 +139,11 @@ async def test_transaction_rollback_uses_safe_send_command(monkeypatch):
 
 # ── R13 — offset honors side_x/side_y and deletes the unused copy ───────────
 
+
 async def test_offset_picks_copy_nearest_side_point(monkeypatch):
     # ent.Offset(+d) -> copy centred at (0, +10); ent.Offset(-d) -> (0, -10).
     pos_copy = MagicMock(name="pos")
-    pos_copy.GetBoundingBox.return_value = ((-1, 9), (1, 11))   # centre (0, 10)
+    pos_copy.GetBoundingBox.return_value = ((-1, 9), (1, 11))  # centre (0, 10)
     neg_copy = MagicMock(name="neg")
     neg_copy.GetBoundingBox.return_value = ((-1, -11), (1, -9))  # centre (0, -10)
 

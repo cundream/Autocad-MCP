@@ -66,9 +66,7 @@ async def test_refiner_repairs_construction_and_duplicates(backend):
     assert result.status == "threshold_met"
     assert result.final_score == 100.0
     assert result.rounds[0].score_after > result.rounds[0].score_before
-    assert await backend.drawing_critique(
-        ["duplicate_entities", "construction_left"]
-    ) == []
+    assert await backend.drawing_critique(["duplicate_entities", "construction_left"]) == []
 
 
 async def test_refiner_dry_run_does_not_mutate_drawing(backend):

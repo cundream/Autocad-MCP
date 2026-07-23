@@ -48,6 +48,7 @@ async def test_active_document_switch_clears_com_document_state(monkeypatch):
     assert backend._preflight_result is None
     assert backend._gdt_datums_defined == set()
 
+
 # ---------------------------------------------------------------------------
 # normalize_lineweight — parametrized table
 # ---------------------------------------------------------------------------
@@ -107,7 +108,12 @@ def test_normalize_lineweight_non_numeric_passthrough():
 # _safe_send_command — CMDACTIVE polling / timeout / var-restore
 # ---------------------------------------------------------------------------
 
-def _make_mock_doc(cmdactive_sequence: list[int], modelspace_handles_pre: set[str] | None = None, modelspace_handles_post: set[str] | None = None) -> MagicMock:
+
+def _make_mock_doc(
+    cmdactive_sequence: list[int],
+    modelspace_handles_pre: set[str] | None = None,
+    modelspace_handles_post: set[str] | None = None,
+) -> MagicMock:
     """Build a minimal mock AutoCAD document for _safe_send_command tests."""
     doc = MagicMock()
 
@@ -270,9 +276,9 @@ async def test_dimension_linear_uses_add_dim_rotated():
     mspace.AddDimRotated.assert_called_once()
     mspace.AddDimLinear.assert_not_called()
     args = mspace.AddDimRotated.call_args[0]
-    assert args[0] == (0.0, 0.0)      # ext line 1 origin
-    assert args[1] == (100.0, 0.0)    # ext line 2 origin
-    assert args[2] == (50.0, 20.0)    # dim line location
+    assert args[0] == (0.0, 0.0)  # ext line 1 origin
+    assert args[1] == (100.0, 0.0)  # ext line 2 origin
+    assert args[2] == (50.0, 20.0)  # dim line location
     assert args[3] == pytest.approx(0.0)  # rotation in radians
 
 

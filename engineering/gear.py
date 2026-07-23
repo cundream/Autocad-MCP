@@ -67,16 +67,18 @@ def generate_involute_flank(
     return points
 
 
-def _rotate_points(
-    pts: list[tuple[float, float]], angle: float
-) -> list[tuple[float, float]]:
+def _rotate_points(pts: list[tuple[float, float]], angle: float) -> list[tuple[float, float]]:
     c, s = math.cos(angle), math.sin(angle)
     return [(c * x - s * y, s * x + c * y) for x, y in pts]
 
 
 def _arc_points(
-    cx: float, cy: float, radius: float,
-    start_angle: float, end_angle: float, n: int = 5,
+    cx: float,
+    cy: float,
+    radius: float,
+    start_angle: float,
+    end_angle: float,
+    n: int = 5,
 ) -> list[tuple[float, float]]:
     """Sample n points along an arc (start_angle → end_angle, radians, ccw)."""
     if n < 2:
@@ -232,20 +234,29 @@ async def draw_helical_gear_front_view(
     root_circ = await backend.entity_create_circle(cx, cy, root_r, layer="GEOMETRY")
 
     pts = generate_full_gear_outline(
-        module=module, teeth=teeth, pressure_angle=pressure_angle,
-        helix_angle=helix_angle, hand=hand, center=(cx, cy),
+        module=module,
+        teeth=teeth,
+        pressure_angle=pressure_angle,
+        helix_angle=helix_angle,
+        hand=hand,
+        center=(cx, cy),
     )
     outline = await backend.entity_create_polyline(
         [[float(x), float(y)] for x, y in pts],
-        closed=True, layer="GEOMETRY",
+        closed=True,
+        layer="GEOMETRY",
     )
 
     helix_handles: list[str] | None = None
     helix_label: str | None = None
     if helix_angle and abs(helix_angle) > 1e-9:
         helix_handles, helix_label = await _draw_helix_symbol(
-            backend, cx=cx, cy=cy, outer_r=outer_r,
-            helix_angle=helix_angle, hand=hand,
+            backend,
+            cx=cx,
+            cy=cy,
+            outer_r=outer_r,
+            helix_angle=helix_angle,
+            hand=hand,
         )
 
     bore_handle: str | None = None
@@ -263,7 +274,10 @@ async def draw_helical_gear_front_view(
             keyway_dict = keyed
         else:
             bore_only = await backend.entity_create_circle(
-                cx, cy, bore_diameter / 2.0, layer="GEOMETRY",
+                cx,
+                cy,
+                bore_diameter / 2.0,
+                layer="GEOMETRY",
             )
             bore_handle = bore_only.handle
 
@@ -385,10 +399,18 @@ async def draw_gear_section_aa(
             bore_handles = [keyway_dict["bore_top"], keyway_dict["bore_bottom"]]
         else:
             bore_top = await backend.entity_create_line(
-                x_left, cy + bore_r, x_right, cy + bore_r, layer="GEOMETRY",
+                x_left,
+                cy + bore_r,
+                x_right,
+                cy + bore_r,
+                layer="GEOMETRY",
             )
             bore_bot = await backend.entity_create_line(
-                x_left, cy - bore_r, x_right, cy - bore_r, layer="GEOMETRY",
+                x_left,
+                cy - bore_r,
+                x_right,
+                cy - bore_r,
+                layer="GEOMETRY",
             )
             bore_handles = [bore_top.handle, bore_bot.handle]
 

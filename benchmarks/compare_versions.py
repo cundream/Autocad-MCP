@@ -11,6 +11,7 @@ recorded as a miss instead of taking down the whole run.
 The older ref is checked out into a throwaway git worktree, benchmarked, and
 removed. The "new" side is always the current repository checkout.
 """
+
 from __future__ import annotations
 
 import json
@@ -27,8 +28,7 @@ PY = sys.executable
 
 def _run(cmd, cwd, repo_on_path):
     env = {**os.environ, "PYTHONPATH": repo_on_path}
-    return subprocess.run(cmd, cwd=cwd, env=env, capture_output=True,
-                          text=True, timeout=120)
+    return subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, timeout=120)
 
 
 def list_checks():
@@ -43,9 +43,14 @@ def list_checks():
 
 def run_one(repo, suite, name):
     try:
-        r = subprocess.run([PY, suite, name], cwd=repo,
-                           env={**os.environ, "PYTHONPATH": repo},
-                           capture_output=True, text=True, timeout=120)
+        r = subprocess.run(
+            [PY, suite, name],
+            cwd=repo,
+            env={**os.environ, "PYTHONPATH": repo},
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
     except subprocess.TimeoutExpired:
         return "timeout"
     last = (r.stdout.strip().splitlines() or [""])[-1].strip()
@@ -82,22 +87,30 @@ def main():
     op = sum(r["old"] == "pass" for r in rows)
     npass = sum(r["new"] == "pass" for r in rows)
     summary = {
-        "baseline_ref": ref, "total": total,
-        "old_pass": op, "new_pass": npass,
-        "old_pct": round(100 * op / total, 1), "new_pct": round(100 * npass / total, 1),
+        "baseline_ref": ref,
+        "total": total,
+        "old_pass": op,
+        "new_pass": npass,
+        "old_pct": round(100 * op / total, 1),
+        "new_pct": round(100 * npass / total, 1),
         "fixed": sum(r["old"] != "pass" and r["new"] == "pass" for r in rows),
         "regressed": sum(r["old"] == "pass" and r["new"] != "pass" for r in rows),
     }
     print(f"{'CHECK':<32} {'CATEGORY':<13} {'baseline':<8} {'current':<8}")
     print("-" * 66)
     for r in rows:
-        mark = " ->FIXED" if (r["old"] != "pass" and r["new"] == "pass") else (
-            " !!REGRESS" if (r["old"] == "pass" and r["new"] != "pass") else "")
+        mark = (
+            " ->FIXED"
+            if (r["old"] != "pass" and r["new"] == "pass")
+            else (" !!REGRESS" if (r["old"] == "pass" and r["new"] != "pass") else "")
+        )
         print(f"{r['check']:<32} {r['category']:<13} {r['old']:<8} {r['new']:<8}{mark}")
     print("-" * 66)
-    print(f"baseline {ref}: {op}/{total} ({summary['old_pct']}%)   "
-          f"current: {npass}/{total} ({summary['new_pct']}%)   "
-          f"fixed: {summary['fixed']}  regressed: {summary['regressed']}")
+    print(
+        f"baseline {ref}: {op}/{total} ({summary['old_pct']}%)   "
+        f"current: {npass}/{total} ({summary['new_pct']}%)   "
+        f"fixed: {summary['fixed']}  regressed: {summary['regressed']}"
+    )
     if json_out:
         with open(json_out, "w") as fh:
             json.dump({"summary": summary, "rows": rows}, fh, indent=2)

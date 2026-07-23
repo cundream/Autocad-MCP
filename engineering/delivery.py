@@ -163,7 +163,9 @@ async def deliver_drawing(
     expected: dict | None = None,
 ) -> DeliveryResult:
     """Export, validate, hash and re-open a release-ready drawing bundle."""
-    requested = list(dict.fromkeys(item.lower().strip() for item in (formats or ["dxf", "pdf", "png"])))
+    requested = list(
+        dict.fromkeys(item.lower().strip() for item in (formats or ["dxf", "pdf", "png"]))
+    )
     unknown = [item for item in requested if item not in _FORMAT_FILENAMES]
     if unknown:
         raise ValueError(f"Unsupported delivery format(s): {', '.join(unknown)}")
@@ -210,9 +212,7 @@ async def deliver_drawing(
                 artifact_path.write_bytes(png)
             artifacts.append(_artifact_record(fmt, artifact_path, status="created"))
         except Exception as exc:
-            artifacts.append(
-                _artifact_record(fmt, artifact_path, status="failed", error=str(exc))
-            )
+            artifacts.append(_artifact_record(fmt, artifact_path, status="failed", error=str(exc)))
         finally:
             timings[f"export_{fmt}_ms"] = round((time.perf_counter() - export_started) * 1000, 2)
 

@@ -16,10 +16,13 @@ def _close(a, b, tol=1e-6):
 
 # ─── drawing_plan ──────────────────────────────────────────────────────────
 
+
 class TestDrawingPlan:
     async def test_plan_returns_spec_with_intent(self, backend):
         plan = await backend.drawing_plan(
-            "L-bracket 50x80", sheet_size="A4", scale=1.0,
+            "L-bracket 50x80",
+            sheet_size="A4",
+            scale=1.0,
         )
         assert plan.intent == "L-bracket 50x80"
         assert plan.sheet_size == "A4"
@@ -35,6 +38,7 @@ class TestDrawingPlan:
 
 
 # ─── drawing_critique ──────────────────────────────────────────────────────
+
 
 class TestDrawingCritique:
     async def test_critique_clean_drawing(self, backend):
@@ -72,6 +76,7 @@ class TestDrawingCritique:
 
 
 # ─── point_from_snap ───────────────────────────────────────────────────────
+
 
 class TestPointFromSnap:
     async def test_snap_end_default(self, backend):
@@ -122,6 +127,7 @@ class TestPointFromSnap:
 
 # ─── construction layer ───────────────────────────────────────────────────
 
+
 class TestConstructionLayer:
     async def test_xline_creates_on_construction_layer(self, backend):
         xl = await backend.construction_xline(0, 0, 45)
@@ -139,6 +145,7 @@ class TestConstructionLayer:
 
 
 # ─── drawing_apply_iso_layers ──────────────────────────────────────────────
+
 
 class TestApplyISOLayers:
     async def test_mech_layer_set(self, backend):
@@ -170,13 +177,15 @@ class TestApplyISOLayers:
 
 # ─── dimension_auto ────────────────────────────────────────────────────────
 
+
 class TestDimensionAuto:
     async def test_chain_creates_one_dim_per_segment(self, backend):
         l1 = await backend.entity_create_line(0, 0, 30, 0)
         l2 = await backend.entity_create_line(30, 0, 70, 0)
         l3 = await backend.entity_create_line(70, 0, 100, 0)
         dims = await backend.dimension_auto(
-            [l1.handle, l2.handle, l3.handle], style="chain",
+            [l1.handle, l2.handle, l3.handle],
+            style="chain",
         )
         assert len(dims) == 3
 
@@ -198,6 +207,7 @@ class TestDimensionAuto:
 
 # ─── entity_select_smart ───────────────────────────────────────────────────
 
+
 class TestEntitySelectSmart:
     async def test_select_by_type(self, backend):
         await backend.entity_create_line(0, 0, 50, 0)
@@ -214,19 +224,20 @@ class TestEntitySelectSmart:
         assert len(result) == 1
 
     async def test_select_by_near(self, backend):
-        await backend.entity_create_line(0, 0, 10, 0)        # near origin
+        await backend.entity_create_line(0, 0, 10, 0)  # near origin
         await backend.entity_create_line(1000, 1000, 1010, 1000)  # far
         result = await backend.entity_select_smart({"type": "LINE", "near": [0, 0, 50]})
         assert len(result) == 1
 
     async def test_select_by_length_range(self, backend):
-        await backend.entity_create_line(0, 0, 10, 0)   # length 10
+        await backend.entity_create_line(0, 0, 10, 0)  # length 10
         await backend.entity_create_line(0, 50, 100, 50)  # length 100
         result = await backend.entity_select_smart({"type": "LINE", "length_range": [50, 200]})
         assert len(result) == 1
 
 
 # ─── Integration: plan → draw → critique pipeline ──────────────────────────
+
 
 class TestPremiumPipeline:
     async def test_full_l_bracket_pipeline_clean(self, backend):

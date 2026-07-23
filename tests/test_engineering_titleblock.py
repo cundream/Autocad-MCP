@@ -39,7 +39,8 @@ async def test_titleblock_outer_border_dimensions(backend):
 async def test_title_text_exact_match(backend):
     """Title text in the drawing must equal metadata.title verbatim."""
     result = await apply_iso_a3_titleblock(
-        backend, metadata=_meta(title="HELICAL GEAR"),
+        backend,
+        metadata=_meta(title="HELICAL GEAR"),
     )
     title_ent = await backend.entity_get(result["title_text"])
     assert title_ent.type == "TEXT"
@@ -50,9 +51,16 @@ async def test_titleblock_creates_text_for_each_metadata_field(backend):
     """value_texts must contain a handle for every metadata field."""
     result = await apply_iso_a3_titleblock(backend, metadata=_meta())
     expected_keys = {
-        "drawing_no", "revision", "sheet",
-        "part_no", "material", "scale",
-        "drawn_by", "checked_by", "date", "company",
+        "drawing_no",
+        "revision",
+        "sheet",
+        "part_no",
+        "material",
+        "scale",
+        "drawn_by",
+        "checked_by",
+        "date",
+        "company",
     }
     assert set(result["value_texts"].keys()) == expected_keys
     # All handles must resolve to TEXT entities
@@ -64,7 +72,9 @@ async def test_titleblock_creates_text_for_each_metadata_field(backend):
 async def test_titleblock_origin_offset(backend):
     """Passing origin=(100,50) must shift the bbox by that amount."""
     result = await apply_iso_a3_titleblock(
-        backend, metadata=_meta(), origin=(100.0, 50.0),
+        backend,
+        metadata=_meta(),
+        origin=(100.0, 50.0),
     )
     bbox = result["bbox"]
     assert bbox["min"][0] == pytest.approx(100.0)

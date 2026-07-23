@@ -72,7 +72,9 @@ async def apply_iso_a3_titleblock(
         [ox, oy + SHEET_H],
     ]
     outer = await backend.entity_create_polyline(
-        points=outer_pts, closed=True, layer=LAYER_BORDER,
+        points=outer_pts,
+        closed=True,
+        layer=LAYER_BORDER,
     )
 
     inner_x0 = ox + LEFT_MARGIN
@@ -86,7 +88,9 @@ async def apply_iso_a3_titleblock(
         [inner_x0, inner_y1],
     ]
     inner = await backend.entity_create_polyline(
-        points=inner_pts, closed=True, layer=LAYER_BORDER,
+        points=inner_pts,
+        closed=True,
+        layer=LAYER_BORDER,
     )
 
     # ---- title block (lower-right corner of inner border) ----------------------
@@ -103,7 +107,9 @@ async def apply_iso_a3_titleblock(
         [tb_x0, tb_y1],
     ]
     tb_frame = await backend.entity_create_polyline(
-        points=tb_frame_pts, closed=True, layer=LAYER_BORDER,
+        points=tb_frame_pts,
+        closed=True,
+        layer=LAYER_BORDER,
     )
 
     # Row baselines (from bottom up): row4_top, row3_top, row2_top
@@ -115,13 +121,21 @@ async def apply_iso_a3_titleblock(
 
     async def hline(y: float) -> str:
         ent = await backend.entity_create_line(
-            tb_x0, y, tb_x1, y, layer=LAYER_BORDER,
+            tb_x0,
+            y,
+            tb_x1,
+            y,
+            layer=LAYER_BORDER,
         )
         return ent.handle
 
     async def vline(x: float, y0: float, y1: float) -> str:
         ent = await backend.entity_create_line(
-            x, y0, x, y1, layer=LAYER_BORDER,
+            x,
+            y0,
+            x,
+            y1,
+            layer=LAYER_BORDER,
         )
         return ent.handle
 
@@ -157,13 +171,21 @@ async def apply_iso_a3_titleblock(
 
     async def label(text: str, x: float, y: float) -> str:
         ent = await backend.entity_create_text(
-            text=text, x=x, y=y, height=LABEL_HEIGHT, layer=LAYER_TEXT,
+            text=text,
+            x=x,
+            y=y,
+            height=LABEL_HEIGHT,
+            layer=LAYER_TEXT,
         )
         return ent.handle
 
     async def value(text: str, x: float, y: float, height: float = VALUE_HEIGHT) -> str:
         ent = await backend.entity_create_text(
-            text=text, x=x, y=y, height=height, layer=LAYER_TEXT,
+            text=text,
+            x=x,
+            y=y,
+            height=height,
+            layer=LAYER_TEXT,
         )
         return ent.handle
 

@@ -91,5 +91,13 @@ class Issue:
 
 # ISO 128 lineweight set (mm). Any lineweight outside this set is flagged.
 ISO_128_LINEWEIGHTS_MM: tuple[float, ...] = (
-    0.13, 0.18, 0.25, 0.35, 0.50, 0.70, 1.00, 1.40, 2.00,
+    0.13,
+    0.18,
+    0.25,
+    0.35,
+    0.50,
+    0.70,
+    1.00,
+    1.40,
+    2.00,
 )

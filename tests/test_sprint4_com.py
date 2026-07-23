@@ -34,6 +34,7 @@ def _backend_no_executor() -> ComBackend:
 
 # ── R28 — _find_autocad_hwnd prefers Application.HWND over EnumWindows ───────
 
+
 async def test_find_hwnd_prefers_application_hwnd(monkeypatch):
     """The real main-frame handle from the COM app wins; EnumWindows is not
     consulted when the HWND read succeeds."""
@@ -97,6 +98,7 @@ async def test_find_hwnd_returns_none_when_win32_unavailable(monkeypatch):
 
 
 # ── S3 — block_list populates BlockInfo.description from .Comments ───────────
+
 
 class _Block:
     """Minimal stand-in for an AutoCAD block definition."""
@@ -167,10 +169,12 @@ async def test_block_list_description_empty_when_comments_none(monkeypatch):
 
 
 async def test_block_list_skips_anonymous_layout_blocks(monkeypatch):
-    doc = _doc_with_blocks([
-        _Block("*Model_Space", comments="ignored"),
-        _Block("GEAR", comments="spur gear"),
-    ])
+    doc = _doc_with_blocks(
+        [
+            _Block("*Model_Space", comments="ignored"),
+            _Block("GEAR", comments="spur gear"),
+        ]
+    )
     monkeypatch.setattr(cb, "_acad_doc", lambda: doc)
 
     b = _backend_no_executor()

@@ -68,7 +68,10 @@ async def test_analysis_entity_stats(backend):
     stats = await backend.analysis_stats()
     assert isinstance(stats, dict)
     by_type = stats.get("by_type", stats)
-    total = stats.get("total", stats.get("total_entities", sum(by_type.values()) if isinstance(by_type, dict) else 0))
+    total = stats.get(
+        "total",
+        stats.get("total_entities", sum(by_type.values()) if isinstance(by_type, dict) else 0),
+    )
     assert total >= 3
 
 

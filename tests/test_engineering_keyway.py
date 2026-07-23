@@ -37,8 +37,11 @@ async def test_draw_keyed_bore_returns_expected_handles(backend):
     await ensure_standard_linetypes(backend)
     await ensure_engineering_layers(backend)
     res = await draw_keyed_bore(
-        backend, center=(0.0, 0.0), bore_diameter=25.0,
-        keyway_width=8.0, keyway_depth=4.0,
+        backend,
+        center=(0.0, 0.0),
+        bore_diameter=25.0,
+        keyway_width=8.0,
+        keyway_depth=4.0,
     )
     for k in ("bore", "keyway_polyline", "centerline_h", "centerline_v"):
         assert k in res
@@ -50,8 +53,12 @@ async def test_draw_keyway_section_geometry(backend):
     await ensure_standard_linetypes(backend)
     await ensure_engineering_layers(backend)
     res = await draw_keyway_section(
-        backend, center=(0.0, 0.0), bore_diameter=25.0, face_width=40.0,
-        keyway_width=8.0, keyway_depth=4.0,
+        backend,
+        center=(0.0, 0.0),
+        bore_diameter=25.0,
+        face_width=40.0,
+        keyway_width=8.0,
+        keyway_depth=4.0,
     )
     assert "bore_top" in res
     assert "bore_bottom" in res

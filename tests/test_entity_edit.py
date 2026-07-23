@@ -14,10 +14,11 @@ pytestmark = pytest.mark.asyncio
 
 # ── entity_edit_text ────────────────────────────────────────────────────────
 
+
 async def test_edit_text_changes_content_keeps_handle(backend):
     t = await backend.entity_create_text("OLD LABEL", 0, 0, height=2.5, layer="TEXT")
     updated = await backend.entity_edit_text(t.handle, text="NEW LABEL")
-    assert updated.handle == t.handle          # handle preserved
+    assert updated.handle == t.handle  # handle preserved
     assert updated.properties["text"] == "NEW LABEL"
 
 
@@ -43,6 +44,7 @@ async def test_edit_text_rejects_non_text(backend):
 
 
 # ── entity_edit_geometry ────────────────────────────────────────────────────
+
 
 async def test_edit_circle_radius_and_center(backend):
     c = await backend.entity_create_circle(0, 0, 10, layer="GEOMETRY")

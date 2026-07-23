@@ -64,12 +64,8 @@ async def repair_untrimmed_corner(backend: AutoCADBackend, issue: Issue) -> dict
     midpoint = ((float(p1[0]) + float(p2[0])) / 2, (float(p1[1]) + float(p2[1])) / 2)
     first = await backend.entity_get(issue.handles[0])
     second = await backend.entity_get(issue.handles[1])
-    await backend.entity_edit_geometry(
-        issue.handles[0], **_endpoint_kwargs(first, p1, midpoint)
-    )
-    await backend.entity_edit_geometry(
-        issue.handles[1], **_endpoint_kwargs(second, p2, midpoint)
-    )
+    await backend.entity_edit_geometry(issue.handles[0], **_endpoint_kwargs(first, p1, midpoint))
+    await backend.entity_edit_geometry(issue.handles[1], **_endpoint_kwargs(second, p2, midpoint))
     return {"handles": list(issue.handles), "corner": list(midpoint)}
 
 

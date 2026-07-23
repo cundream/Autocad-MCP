@@ -33,6 +33,7 @@ async def test_drawing_export_dxf(backend, tmp_path):
     result = await backend.drawing_export_dxf(export_path)
     assert result.get("ok") is True
     import os
+
     assert os.path.exists(export_path)
 
 
