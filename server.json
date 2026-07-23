@@ -1,0 +1,44 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.u-c4n/autocad-mcp",
+  "title": "AutoCAD MCP Pro",
+  "description": "AutoCAD automation for AI agents: live COM or headless ezdxf, ISO dims, GD&T, quality gate.",
+  "repository": {
+    "url": "https://github.com/U-C4N/Autocad-MCP",
+    "source": "github"
+  },
+  "version": "1.4.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "autocad-mcp-pro",
+      "version": "1.4.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "AUTOCAD_MCP_BACKEND",
+          "description": "Backend selection: auto (default), com (live AutoCAD, Windows) or ezdxf (headless DXF).",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "ALLOWED_PATHS",
+          "description": "Comma-separated absolute paths the server may read and write. Empty blocks file access outside temp.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "TOOL_PROFILE",
+          "description": "Exposed tool profile: full (default), core or lean.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

@@ -43,6 +43,12 @@ desktop.ini
 out/
 benchmarks/results/*
 !benchmarks/results/.gitkeep
+!benchmarks/results/published
+!benchmarks/results/published/**
+benchmarks/.competitors/
 *.dxf
 *.dwg
 *.bak
+
+# Local editor/agent state
+.cursor/

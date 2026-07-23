@@ -1,14 +1,47 @@
 [project]
 name = "autocad-mcp-pro"
-version = "1.3.0"
+version = "1.4.0"
 description = "Production-grade AutoCAD MCP server — COM API + ezdxf dual engine"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Umutcan Edizsalan" },
+]
+keywords = [
+    "autocad",
+    "mcp",
+    "model-context-protocol",
+    "cad",
+    "dxf",
+    "ezdxf",
+    "drafting",
+    "engineering-drawing",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Manufacturing",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "fastmcp>=3.0",
     "ezdxf>=1.3",
     "pydantic>=2.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/U-C4N/Autocad-MCP"
+Repository = "https://github.com/U-C4N/Autocad-MCP"
+Issues = "https://github.com/U-C4N/Autocad-MCP/issues"
+Changelog = "https://github.com/U-C4N/Autocad-MCP/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 com = [
@@ -26,6 +59,9 @@ full = [
 
 [project.scripts]
 autocad-mcp = "server:main"
+# Alias matching the PyPI distribution name so `uvx autocad-mcp-pro` works
+# without a --from indirection (MCP registry / uvx convention).
+autocad-mcp-pro = "server:main"
 
 [tool.uv]
 dev-dependencies = [
