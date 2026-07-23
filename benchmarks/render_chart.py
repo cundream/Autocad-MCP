@@ -66,24 +66,43 @@ def render_chart(data: dict[str, Any], output: Path) -> None:
 
     matplotlib.rcParams["svg.hashsalt"] = "autocad-mcp-source-review-v1"
     projects = sorted(data["projects"], key=lambda item: item["score"])
-    labels = [item["repository"] for item in projects]
+    total = len(projects)
+    # rank 1 = highest score (drawn topmost by barh with ascending sort)
+    labels = [
+        f"{total - index}. {item['repository']}" for index, item in enumerate(projects)
+    ]
     scores = [item["score"] for item in projects]
     grades = [item["evidence_grade"] for item in projects]
-    colors = ["#0969da" if label == "U-C4N/Autocad-MCP" else "#6e7781" for label in labels]
+    # leaderboard palette by rank (rank 1 first), canvas/LLM-benchmark style
+    rank_palette = [
+        "#3fb950",  # 1 green
+        "#58a6ff",  # 2 sky
+        "#6e7ce0",  # 3 indigo
+        "#d29922",  # 4 amber
+        "#c4622d",  # 5 rust
+        "#e3b341",  # 6 yellow
+        "#bf4b8a",  # 7 magenta
+        "#f0876e",  # 8 salmon
+        "#8957e5",  # 9 purple
+    ]
+    colors = [
+        rank_palette[(total - 1 - index) % len(rank_palette)]
+        for index in range(total)
+    ]
 
-    fig, ax = plt.subplots(figsize=(12, 6.4), constrained_layout=True)
-    fig.patch.set_facecolor("#f6f8fa")
-    ax.set_facecolor("#f6f8fa")
+    fig, ax = plt.subplots(figsize=(12, 0.62 * total + 2.4), constrained_layout=True)
+    fig.patch.set_facecolor("#0d1117")
+    ax.set_facecolor("#0d1117")
     bars = ax.barh(labels, scores, color=colors, height=0.62)
 
     ax.set_xlim(0, 100)
-    ax.set_xlabel("Weighted capability score / 100", color="#24292f", labelpad=10)
+    ax.set_xlabel("Weighted capability score / 100", color="#e6edf3", labelpad=10)
     ax.set_title(
-        "Source-reviewed capability benchmark",
+        "Public AutoCAD MCP leaderboard — Source-reviewed capability benchmark",
         loc="left",
-        fontsize=18,
+        fontsize=17,
         fontweight="bold",
-        color="#24292f",
+        color="#e6edf3",
         pad=28,
     )
     ax.text(
@@ -91,17 +110,17 @@ def render_chart(data: dict[str, Any], output: Path) -> None:
         1.02,
         f"Fixed rubric · reviewed {data['reviewed_at']} · evidence grade shown per project",
         transform=ax.transAxes,
-        color="#57606a",
+        color="#8b949e",
         fontsize=10,
     )
 
     for bar, score, grade in zip(bars, scores, grades, strict=True):
         ax.text(
-            min(score + 1.2, 96),
+            min(score + 1.2, 88),
             bar.get_y() + bar.get_height() / 2,
-            f"{score}  ·  {grade}",
+            f"{score} / 100  ·  {grade}",
             va="center",
-            color="#24292f",
+            color="#e6edf3",
             fontweight="bold",
         )
 
@@ -110,13 +129,13 @@ def render_chart(data: dict[str, Any], output: Path) -> None:
         -0.17,
         "Shared live-run results are not implied. Scores reflect public-source and recorded test evidence.",
         transform=ax.transAxes,
-        color="#57606a",
+        color="#8b949e",
         fontsize=9,
     )
-    ax.grid(axis="x", color="#d0d7de", linewidth=0.8, alpha=0.8)
+    ax.grid(axis="x", color="#30363d", linewidth=0.8, alpha=0.9)
     ax.set_axisbelow(True)
-    ax.tick_params(axis="x", colors="#57606a")
-    ax.tick_params(axis="y", colors="#24292f", length=0, pad=8)
+    ax.tick_params(axis="x", colors="#8b949e")
+    ax.tick_params(axis="y", colors="#e6edf3", length=0, pad=8)
     for spine in ax.spines.values():
         spine.set_visible(False)
 

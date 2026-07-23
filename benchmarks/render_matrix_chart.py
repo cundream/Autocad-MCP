@@ -20,12 +20,12 @@ DEFAULT_INPUT_DIR = ROOT / "benchmarks" / "results" / "published"
 DEFAULT_OUTPUT = ROOT / "docs" / "assets" / "autocad-mcp-taskmatrix.svg"
 
 STATUS_COLORS = {
-    "pass": "#2da44e",
-    "partial": "#d4a72c",
-    "fail": "#cf222e",
+    "pass": "#238636",
+    "partial": "#d29922",
+    "fail": "#da3633",
     "timeout": "#a40e26",
-    "unsupported": "#d0d7de",
-    "not_run": "#f6f8fa",
+    "unsupported": "#30363d",
+    "not_run": "#161b22",
 }
 
 STATUS_GLYPHS = {
@@ -78,8 +78,8 @@ def render_chart(reports: list[dict[str, Any]], output: Path) -> None:
         figsize=(3.4 + 2.4 * len(servers), 1.8 + 0.52 * len(task_ids)),
         constrained_layout=True,
     )
-    fig.patch.set_facecolor("#f6f8fa")
-    ax.set_facecolor("#f6f8fa")
+    fig.patch.set_facecolor("#0d1117")
+    ax.set_facecolor("#0d1117")
 
     for row, task_id in enumerate(task_ids):
         for col, server in enumerate(servers):
@@ -91,11 +91,11 @@ def render_chart(reports: list[dict[str, Any]], output: Path) -> None:
                     0.88,
                     0.84,
                     facecolor=color,
-                    edgecolor="#d0d7de",
+                    edgecolor="#30363d",
                     linewidth=0.8,
                 )
             )
-            glyph_color = "#ffffff" if status in ("pass", "fail", "timeout") else "#24292f"
+            glyph_color = "#ffffff" if status in ("pass", "fail", "timeout") else "#e6edf3"
             ax.text(
                 col + 0.5,
                 row + 0.5,
@@ -110,10 +110,10 @@ def render_chart(reports: list[dict[str, Any]], output: Path) -> None:
     ax.set_xlim(0, len(servers))
     ax.set_ylim(len(task_ids), 0)
     ax.set_xticks([index + 0.5 for index in range(len(servers))])
-    ax.set_xticklabels(servers, color="#24292f", fontsize=10, fontweight="bold")
+    ax.set_xticklabels(servers, color="#e6edf3", fontsize=10, fontweight="bold")
     ax.xaxis.set_ticks_position("top")
     ax.set_yticks([index + 0.5 for index in range(len(task_ids))])
-    ax.set_yticklabels(task_labels, color="#24292f", fontsize=9)
+    ax.set_yticklabels(task_labels, color="#e6edf3", fontsize=9)
     ax.tick_params(length=0)
     for spine in ax.spines.values():
         spine.set_visible(False)
@@ -123,7 +123,7 @@ def render_chart(reports: list[dict[str, Any]], output: Path) -> None:
         loc="left",
         fontsize=17,
         fontweight="bold",
-        color="#24292f",
+        color="#e6edf3",
         pad=34,
     )
 
@@ -140,6 +140,7 @@ def render_chart(reports: list[dict[str, Any]], output: Path) -> None:
         ncol=4,
         frameon=False,
         fontsize=9,
+        labelcolor="#e6edf3",
     )
 
     output.parent.mkdir(parents=True, exist_ok=True)

@@ -25,7 +25,7 @@ L 864 331.2
 L 864 0
 L 0 0
 z
-" style="fill: #f6f8fa"/>
+" style="fill: #0d1117"/>
   </g>
   <g id="axes_1">
    <g id="patch_2">
@@ -34,28 +34,28 @@ L 750.185843 273.231039
 L 750.185843 44.677427
 L 263.71899 44.677427
 z
-" style="fill: #f6f8fa"/>
+" style="fill: #0d1117"/>
    </g>
    <g id="matplotlib.axis_1">
     <g id="xtick_1">
      <g id="line2d_1">
       <path d="M 371.504738 273.231039
 L 371.504738 44.677427
-" clip-path="url(#p241cb65ad2)" style="fill: none; stroke: #d0d7de; stroke-opacity: 0.8; stroke-width: 0.8; stroke-linecap: square"/>
+" clip-path="url(#p241cb65ad2)" style="fill: none; stroke: #30363d; stroke-opacity: 0.8; stroke-width: 0.8; stroke-linecap: square"/>
      </g>
      <g id="line2d_2">
       <defs>
-       <path id="m1ed7e12a5f" d="M 0 0
+       <path id="m24a80d22c9" d="M 0 0
 L 0 3.5
-" style="stroke: #57606a; stroke-width: 0.8"/>
+" style="stroke: #8b949e; stroke-width: 0.8"/>
       </defs>
       <g>
-       <use xlink:href="#m1ed7e12a5f" x="371.504738" y="273.231039" style="fill: #57606a; stroke: #57606a; stroke-width: 0.8"/>
+       <use xlink:href="#m24a80d22c9" x="371.504738" y="273.231039" style="fill: #8b949e; stroke: #8b949e; stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_1">
       <!-- $\mathdefault{10^{3}}$ -->
-      <g style="fill: #57606a" transform="translate(362.704738 287.829476) scale(0.1 -0.1)">
+      <g style="fill: #8b949e" transform="translate(362.704738 287.829476) scale(0.1 -0.1)">
        <defs>
         <path id="DejaVuSans-31" d="M 794 531
 L 1825 531
@@ -135,16 +135,16 @@ z
      <g id="line2d_3">
       <path d="M 556.489728 273.231039
 L 556.489728 44.677427
-" clip-path="url(#p241cb65ad2)" style="fill: none; stroke: #d0d7de; stroke-opacity: 0.8; stroke-width: 0.8; stroke-linecap: square"/>
+" clip-path="url(#p241cb65ad2)" style="fill: none; stroke: #30363d; stroke-opacity: 0.8; stroke-width: 0.8; stroke-linecap: square"/>
      </g>
      <g id="line2d_4">
       <g>
-       <use xlink:href="#m1ed7e12a5f" x="556.489728" y="273.231039" style="fill: #57606a; stroke: #57606a; stroke-width: 0.8"/>
+       <use xlink:href="#m24a80d22c9" x="556.489728" y="273.231039" style="fill: #8b949e; stroke: #8b949e; stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_2">
       <!-- $\mathdefault{10^{4}}$ -->
-      <g style="fill: #57606a" transform="translate(547.689728 287.829476) scale(0.1 -0.1)">
+      <g style="fill: #8b949e" transform="translate(547.689728 287.829476) scale(0.1 -0.1)">
        <defs>
         <path id="DejaVuSans-34" d="M 2419 4116
 L 825 1625
@@ -176,16 +176,16 @@ z
      <g id="line2d_5">
       <path d="M 741.474717 273.231039
 L 741.474717 44.677427
-" clip-path="url(#p241cb65ad2)" style="fill: none; stroke: #d0d7de; stroke-opacity: 0.8; stroke-width: 0.8; stroke-linecap: square"/>
+" clip-path="url(#p241cb65ad2)" style="fill: none; stroke: #30363d; stroke-opacity: 0.8; stroke-width: 0.8; stroke-linecap: square"/>
      </g>
      <g id="line2d_6">
       <g>
-       <use xlink:href="#m1ed7e12a5f" x="741.474717" y="273.231039" style="fill: #57606a; stroke: #57606a; stroke-width: 0.8"/>
+       <use xlink:href="#m24a80d22c9" x="741.474717" y="273.231039" style="fill: #8b949e; stroke: #8b949e; stroke-width: 0.8"/>
       </g>
      </g>
      <g id="text_3">
       <!-- $\mathdefault{10^{5}}$ -->
-      <g style="fill: #57606a" transform="translate(732.674717 287.829476) scale(0.1 -0.1)">
+      <g style="fill: #8b949e" transform="translate(732.674717 287.829476) scale(0.1 -0.1)">
        <defs>
         <path id="DejaVuSans-35" d="M 691 4666
 L 3169 4666
@@ -387,7 +387,7 @@ L 0 2
     </g>
     <g id="text_4">
      <!-- Wall time in ms (log scale) — lower is better -->
-     <g style="fill: #24292f" transform="translate(396.480541 307.507601) scale(0.1 -0.1)">
+     <g style="fill: #e6edf3" transform="translate(396.480541 307.507601) scale(0.1 -0.1)">
       <defs>
        <path id="DejaVuSans-57" d="M 213 4666
 L 850 4666
@@ -807,7 +807,7 @@ z
      <g id="line2d_30"/>
      <g id="text_5">
       <!-- Premium pass: layers + part + dims + full critique -->
-      <g style="fill: #24292f" transform="translate(3.00024 249.810439) scale(0.1 -0.1)">
+      <g style="fill: #e6edf3" transform="translate(3.00024 249.810439) scale(0.1 -0.1)">
        <defs>
         <path id="DejaVuSans-50" d="M 1259 4147
 L 1259 2394
@@ -1054,7 +1054,7 @@ z
      <g id="line2d_31"/>
      <g id="text_6">
       <!-- Create 2,000 lines (individual calls) -->
-      <g style="fill: #24292f" transform="translate(79.172115 191.772448) scale(0.1 -0.1)">
+      <g style="fill: #e6edf3" transform="translate(79.172115 191.772448) scale(0.1 -0.1)">
        <defs>
         <path id="DejaVuSans-43" d="M 4122 4306
 L 4122 3641
@@ -1165,7 +1165,7 @@ z
      <g id="line2d_32"/>
      <g id="text_7">
       <!-- Region query over 10,000 entities -->
-      <g style="fill: #24292f" transform="translate(85.361177 133.734456) scale(0.1 -0.1)">
+      <g style="fill: #e6edf3" transform="translate(85.361177 133.734456) scale(0.1 -0.1)">
        <defs>
         <path id="DejaVuSans-52" d="M 2841 2188
 Q 3044 2119 3236 1894
@@ -1236,7 +1236,7 @@ z
      <g id="line2d_33"/>
      <g id="text_8">
       <!-- 10,000 lines: build + DXF export + reopen -->
-      <g style="fill: #24292f" transform="translate(42.81274 75.696464) scale(0.1 -0.1)">
+      <g style="fill: #e6edf3" transform="translate(42.81274 75.696464) scale(0.1 -0.1)">
        <defs>
         <path id="DejaVuSans-44" d="M 1259 4147
 L 1259 519
@@ -1352,7 +1352,7 @@ L 278.928931 262.842238
 L 278.928931 229.180203
 L -185168.439812 229.180203
 z
-" clip-path="url(#p241cb65ad2)" style="fill: #0969da"/>
+" clip-path="url(#p241cb65ad2)" style="fill: #58a6ff"/>
    </g>
    <g id="patch_4">
     <path d="M -185168.439812 204.804247
@@ -1360,7 +1360,7 @@ L 335.058784 204.804247
 L 335.058784 171.142211
 L -185168.439812 171.142211
 z
-" clip-path="url(#p241cb65ad2)" style="fill: #0969da"/>
+" clip-path="url(#p241cb65ad2)" style="fill: #58a6ff"/>
    </g>
    <g id="patch_5">
     <path d="M -185168.439812 146.766255
@@ -1368,7 +1368,7 @@ L 470.624428 146.766255
 L 470.624428 113.10422
 L -185168.439812 113.10422
 z
-" clip-path="url(#p241cb65ad2)" style="fill: #0969da"/>
+" clip-path="url(#p241cb65ad2)" style="fill: #58a6ff"/>
    </g>
    <g id="patch_6">
     <path d="M -185168.439812 88.728263
@@ -1376,11 +1376,11 @@ L 583.127751 88.728263
 L 583.127751 55.066228
 L -185168.439812 55.066228
 z
-" clip-path="url(#p241cb65ad2)" style="fill: #0969da"/>
+" clip-path="url(#p241cb65ad2)" style="fill: #58a6ff"/>
    </g>
    <g id="text_9">
     <!-- Fixed workloads via the same backend methods the MCP tools call · Python 3.14.0 · Windows-11-10.0.26200-SP0 -->
-    <g style="fill: #57606a" transform="translate(263.71899 40.106355) scale(0.09 -0.09)">
+    <g style="fill: #8b949e" transform="translate(263.71899 40.106355) scale(0.09 -0.09)">
      <defs>
       <path id="DejaVuSans-6b" d="M 581 4863
 L 1159 4863
@@ -1625,7 +1625,7 @@ z
    </g>
    <g id="text_10">
     <!-- 0.32 s  ·  0 issues -->
-    <g style="fill: #24292f" transform="translate(288.033526 248.494658) scale(0.09 -0.09)">
+    <g style="fill: #e6edf3" transform="translate(288.033526 248.494658) scale(0.09 -0.09)">
      <defs>
       <path id="DejaVuSans-Bold-30" d="M 2944 2338
 Q 2944 3213 2780 3570
@@ -1833,7 +1833,7 @@ z
    </g>
    <g id="text_11">
     <!-- 0.64 s  ·  3,148 entities/s -->
-    <g style="fill: #24292f" transform="translate(344.163379 190.456667) scale(0.09 -0.09)">
+    <g style="fill: #e6edf3" transform="translate(344.163379 190.456667) scale(0.09 -0.09)">
      <defs>
       <path id="DejaVuSans-Bold-36" d="M 2316 2303
 Q 2000 2303 1842 2098
@@ -2028,7 +2028,7 @@ z
    </g>
    <g id="text_12">
     <!-- 3.43 s  ·  2,500 matched -->
-    <g style="fill: #24292f" transform="translate(479.729024 132.418675) scale(0.09 -0.09)">
+    <g style="fill: #e6edf3" transform="translate(479.729024 132.418675) scale(0.09 -0.09)">
      <defs>
       <path id="DejaVuSans-Bold-35" d="M 678 4666
 L 3669 4666
@@ -2218,7 +2218,7 @@ z
    </g>
    <g id="text_13">
     <!-- 13.93 s  ·  718 entities/s -->
-    <g style="fill: #24292f" transform="translate(592.232346 74.380683) scale(0.09 -0.09)">
+    <g style="fill: #e6edf3" transform="translate(592.232346 74.380683) scale(0.09 -0.09)">
      <defs>
       <path id="DejaVuSans-Bold-39" d="M 641 103
 L 641 966
@@ -2291,7 +2291,7 @@ z
    </g>
    <g id="text_14">
     <!-- Self-measurement only: competitor servers would pay extra stdio serialization cost in-process runs do not. Reproduce: python -m benchmarks.perf_suite -->
-    <g style="fill: #57606a" transform="translate(263.71899 328.083906) scale(0.09 -0.09)">
+    <g style="fill: #8b949e" transform="translate(263.71899 328.083906) scale(0.09 -0.09)">
      <defs>
       <path id="DejaVuSans-7a" d="M 353 3500
 L 3084 3500
@@ -2467,7 +2467,7 @@ z
    </g>
    <g id="text_15">
     <!-- Headless performance — ezdxf engine -->
-    <g style="fill: #24292f" transform="translate(263.71899 16.677427) scale(0.18 -0.18)">
+    <g style="fill: #e6edf3" transform="translate(263.71899 16.677427) scale(0.18 -0.18)">
      <defs>
       <path id="DejaVuSans-Bold-48" d="M 588 4666
 L 1791 4666

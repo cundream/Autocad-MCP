@@ -51,23 +51,23 @@ def render_chart(reports: list[dict[str, Any]], output: Path) -> None:
     coverage = [item["summary"]["coverage_percent"] for item in reports]
     passed = [item["summary"]["passed"] for item in reports]
     attempted = [item["summary"]["attempted"] for item in reports]
-    colors = ["#0969da" if label == "autocad-mcp-pro" else "#6e7781" for label in labels]
+    colors = ["#58a6ff" if label == "autocad-mcp-pro" else "#484f58" for label in labels]
 
     fig, ax = plt.subplots(figsize=(12, 4.8), constrained_layout=True)
-    fig.patch.set_facecolor("#f6f8fa")
-    ax.set_facecolor("#f6f8fa")
+    fig.patch.set_facecolor("#0d1117")
+    ax.set_facecolor("#0d1117")
     bars = ax.barh(labels, scores, color=colors, height=0.58)
 
     ax.set_xlim(0, 100)
     ax.set_xlabel(
-        "Weighted live-run score / 100 (fixed 10-task matrix)", color="#24292f", labelpad=10
+        "Weighted live-run score / 100 (fixed 10-task matrix)", color="#e6edf3", labelpad=10
     )
     ax.set_title(
         "Live-run benchmark - headless ezdxf lane",
         loc="left",
         fontsize=18,
         fontweight="bold",
-        color="#24292f",
+        color="#e6edf3",
         pad=28,
     )
     ax.text(
@@ -75,7 +75,7 @@ def render_chart(reports: list[dict[str, Any]], output: Path) -> None:
         1.02,
         "Same 10 tasks, same harness, pinned competitor commits; artifacts verified by re-opening the DXF",
         transform=ax.transAxes,
-        color="#57606a",
+        color="#8b949e",
         fontsize=10,
     )
 
@@ -85,7 +85,7 @@ def render_chart(reports: list[dict[str, Any]], output: Path) -> None:
             bar.get_y() + bar.get_height() / 2,
             f"{score:g}  ({ok}/{total} pass, {cov:g}% coverage)",
             va="center",
-            color="#24292f",
+            color="#e6edf3",
             fontweight="bold",
         )
 
@@ -94,13 +94,13 @@ def render_chart(reports: list[dict[str, Any]], output: Path) -> None:
         -0.22,
         "Unsupported tasks score 0 in the fixed matrix; per-task statuses and reasons are in benchmarks/results/published/.",
         transform=ax.transAxes,
-        color="#57606a",
+        color="#8b949e",
         fontsize=9,
     )
-    ax.grid(axis="x", color="#d0d7de", linewidth=0.8, alpha=0.8)
+    ax.grid(axis="x", color="#30363d", linewidth=0.8, alpha=0.8)
     ax.set_axisbelow(True)
-    ax.tick_params(axis="x", colors="#57606a")
-    ax.tick_params(axis="y", colors="#24292f", length=0, pad=8)
+    ax.tick_params(axis="x", colors="#8b949e")
+    ax.tick_params(axis="y", colors="#e6edf3", length=0, pad=8)
     for spine in ax.spines.values():
         spine.set_visible(False)
 

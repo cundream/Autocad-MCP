@@ -61,18 +61,18 @@ def render_chart(data: dict[str, Any], output: Path) -> None:
     values = [item["wall_ms"] for item in workloads]
 
     fig, ax = plt.subplots(figsize=(12, 4.6), constrained_layout=True)
-    fig.patch.set_facecolor("#f6f8fa")
-    ax.set_facecolor("#f6f8fa")
-    bars = ax.barh(labels, values, color="#0969da", height=0.58)
+    fig.patch.set_facecolor("#0d1117")
+    ax.set_facecolor("#0d1117")
+    bars = ax.barh(labels, values, color="#58a6ff", height=0.58)
 
     ax.set_xscale("log")
-    ax.set_xlabel("Wall time in ms (log scale) — lower is better", color="#24292f", labelpad=10)
+    ax.set_xlabel("Wall time in ms (log scale) — lower is better", color="#e6edf3", labelpad=10)
     ax.set_title(
         "Headless performance — ezdxf engine",
         loc="left",
         fontsize=18,
         fontweight="bold",
-        color="#24292f",
+        color="#e6edf3",
         pad=28,
     )
     env = data.get("environment", {})
@@ -82,7 +82,7 @@ def render_chart(data: dict[str, Any], output: Path) -> None:
         f"Fixed workloads via the same backend methods the MCP tools call · "
         f"Python {env.get('python', '?')} · {env.get('platform', '?')}",
         transform=ax.transAxes,
-        color="#57606a",
+        color="#8b949e",
         fontsize=9,
     )
 
@@ -92,7 +92,7 @@ def render_chart(data: dict[str, Any], output: Path) -> None:
             bar.get_y() + bar.get_height() / 2,
             _annotation(item),
             va="center",
-            color="#24292f",
+            color="#e6edf3",
             fontweight="bold",
             fontsize=9,
         )
@@ -104,13 +104,13 @@ def render_chart(data: dict[str, Any], output: Path) -> None:
         "Self-measurement only: competitor servers would pay extra stdio serialization cost in-process runs do not. "
         "Reproduce: python -m benchmarks.perf_suite",
         transform=ax.transAxes,
-        color="#57606a",
+        color="#8b949e",
         fontsize=9,
     )
-    ax.grid(axis="x", color="#d0d7de", linewidth=0.8, alpha=0.8)
+    ax.grid(axis="x", color="#30363d", linewidth=0.8, alpha=0.8)
     ax.set_axisbelow(True)
-    ax.tick_params(axis="x", colors="#57606a")
-    ax.tick_params(axis="y", colors="#24292f", length=0, pad=8)
+    ax.tick_params(axis="x", colors="#8b949e")
+    ax.tick_params(axis="y", colors="#e6edf3", length=0, pad=8)
     for spine in ax.spines.values():
         spine.set_visible(False)
 
